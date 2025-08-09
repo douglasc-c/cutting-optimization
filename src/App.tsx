@@ -193,7 +193,7 @@ function App() {
                       borderColor: '#333',
                     }}
                     title={`Largura: ${p.largura}mm, Altura: ${p.altura}mm`}
-                  >
+                  >X
                     {p.largura} x {p.altura}
                   </div>
                 ))}
