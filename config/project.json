@@ -1,0 +1,26 @@
+{
+  "project": {
+    "name": "cutting-optimization",
+    "version": "1.0.0",
+    "description": "Sistema de otimização de corte bidimensional com interface Electron",
+    "author": "Douglas Cesário",
+    "license": "MIT"
+  },
+  "backend": {
+    "python_version": "3.8+",
+    "main_script": "main.py",
+    "api_module": "src.api",
+    "optimizer_module": "src.core.cutting_optimizer_enhanced"
+  },
+  "frontend": {
+    "framework": "React + TypeScript",
+    "electron_version": "latest",
+    "dev_port": 3000
+  },
+  "development": {
+    "timeout": 30,
+    "max_iterations": 12,
+    "default_stock_width": 1000,
+    "default_stock_height": 800
+  }
+}

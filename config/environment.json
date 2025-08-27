@@ -1,0 +1,53 @@
+{
+  "environments": {
+    "development": {
+      "debug": true,
+      "log_level": "DEBUG",
+      "timeout": 60,
+      "max_retries": 5,
+      "backend": {
+        "host": "localhost",
+        "port": 5000,
+        "python_path": "python3",
+        "virtual_env": "venv"
+      },
+      "frontend": {
+        "dev_server_port": 3000,
+        "electron_dev_tools": true,
+        "hot_reload": true
+      }
+    },
+    "production": {
+      "debug": false,
+      "log_level": "WARNING",
+      "timeout": 30,
+      "max_retries": 3,
+      "backend": {
+        "host": "0.0.0.0",
+        "port": 5000,
+        "python_path": "python3"
+      },
+      "frontend": {
+        "dev_server_port": 3000,
+        "electron_dev_tools": false,
+        "hot_reload": false
+      }
+    },
+    "testing": {
+      "debug": true,
+      "log_level": "INFO",
+      "timeout": 10,
+      "max_retries": 2,
+      "backend": {
+        "host": "localhost",
+        "port": 5001,
+        "python_path": "python3"
+      },
+      "frontend": {
+        "dev_server_port": 3001,
+        "electron_dev_tools": false,
+        "hot_reload": false
+      }
+    }
+  }
+}

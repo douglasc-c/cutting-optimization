@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  cutting-optimization:
+    build: .
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./config:/app/config
+      - ./output:/app/output
+    environment:
+      - NODE_ENV=production
+      - PYTHONPATH=/app/backend
+    restart: unless-stopped
+
+  # Serviço de desenvolvimento (opcional)
+  cutting-optimization-dev:
+    build: .
+    ports:
+      - "3001:3000"
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - /app/frontend/node_modules
+    environment:
+      - NODE_ENV=development
+      - PYTHONPATH=/app/backend
+    command: ["make", "start"]
+    profiles:
+      - dev

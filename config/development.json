@@ -1,0 +1,30 @@
+{
+  "development": {
+    "debug": true,
+    "log_level": "INFO",
+    "timeout": 30,
+    "max_retries": 3
+  },
+  "backend": {
+    "host": "localhost",
+    "port": 5000,
+    "python_path": "python3",
+    "virtual_env": "venv"
+  },
+  "frontend": {
+    "dev_server_port": 3000,
+    "electron_dev_tools": true,
+    "hot_reload": true
+  },
+  "optimization": {
+    "max_iterations": 12,
+    "time_limit": 60,
+    "random_attempts": 100,
+    "step_size": 1
+  },
+  "testing": {
+    "backend_tests": "tests/",
+    "frontend_tests": "src/**/*.test.*",
+    "coverage_threshold": 80
+  }
+}

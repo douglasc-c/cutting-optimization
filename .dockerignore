@@ -1,0 +1,64 @@
+# Arquivos e diretórios a serem ignorados no Docker
+
+# Dependências
+node_modules/
+*/node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Builds
+frontend/build/
+frontend/dist/
+backend/dist/
+backend/build/
+
+# Cache
+.cache/
+.parcel-cache/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Logs
+logs/
+*.log
+
+# Arquivos temporários
+*.tmp
+*.temp
+temp/
+tmp/
+
+# Sistema operacional
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Documentação
+docs/
+*.md
+
+# Testes
+tests/
+*.test.*
+test_*.py
+
+# Configurações de desenvolvimento
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Ambiente virtual Python
+venv/
+.venv/
+env/
+
+# Output
+output/

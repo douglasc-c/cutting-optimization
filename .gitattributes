@@ -1,0 +1,66 @@
+# Configurações de atributos do Git para o projeto Cutting Optimization
+
+# Arquivos de texto que devem ser normalizados
+*.md text eol=lf
+*.txt text eol=lf
+*.json text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.py text eol=lf
+*.js text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf
+*.jsx text eol=lf
+*.css text eol=lf
+*.html text eol=lf
+*.sh text eol=lf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Arquivos binários
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.zip binary
+*.tar.gz binary
+*.exe binary
+*.dll binary
+*.so binary
+*.dylib binary
+
+# Arquivos de configuração
+.gitattributes text eol=lf
+.gitignore text eol=lf
+.gitkeep text eol=lf
+
+# Arquivos de documentação
+*.md diff=markdown
+*.rst diff=rst
+
+# Arquivos de script
+*.sh text eol=lf
+*.py text eol=lf
+*.js text eol=lf
+
+# Arquivos de configuração de projeto
+package.json text eol=lf
+package-lock.json text eol=lf
+requirements.txt text eol=lf
+setup.py text eol=lf
+tsconfig.json text eol=lf
+webpack.config.js text eol=lf
+
+# Arquivos de teste
+*.test.js text eol=lf
+*.test.ts text eol=lf
+*.test.py text eol=lf
+*_test.py text eol=lf
+test_*.py text eol=lf
+
+# Arquivos de exemplo
+examples/*.json text eol=lf
+examples/*.py text eol=lf
+config/*.json text eol=lf

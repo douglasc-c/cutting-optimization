@@ -1,0 +1,16 @@
+#!/bin/sh
+. "$(dirname "$0")/_/husky.sh"
+
+# Executar validação do projeto
+echo "🔍 Validando estrutura do projeto..."
+./scripts/validate.sh
+
+# Executar linting do frontend
+echo "🔍 Verificando código do frontend..."
+cd frontend && npm run lint --if-present && cd ..
+
+# Executar testes do backend
+echo "🧪 Executando testes do backend..."
+cd backend && python -m pytest tests/ -v --tb=short && cd ..
+
+echo "✅ Pre-commit checks passed!"
