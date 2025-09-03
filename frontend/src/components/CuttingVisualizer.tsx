@@ -41,43 +41,100 @@ const CuttingVisualizer: React.FC<CuttingVisualizerProps> = ({
     '#DDA0DD', '#98D8C8', '#F7DC6F', '#BB8FCE', '#85C1E9'
   ];
 
-  // Gerar grade
-  const gridSize = 50;
-  const gridLines = [];
+  // Função para exportar SVG apenas com as peças
+  const exportPiecesOnly = () => {
+    const svgContent = generatePiecesOnlySVG();
+    const blob = new Blob([svgContent], { type: 'image/svg+xml' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `cutting-pieces-${stockWidth}x${stockHeight}.svg`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  // Função para gerar SVG apenas com as peças
+  const generatePiecesOnlySVG = () => {
+    const piecesElements = piecesPlaced.map((piece, index) => {
+      const colorIndex = index % colors.length;
+      
+      let pieceContent = `
+        <rect
+          x="${piece.x * scale}"
+          y="${piece.y * scale}"
+          width="${piece.width * scale}"
+          height="${piece.height * scale}"
+          fill="${colors[colorIndex]}"
+          stroke="#333"
+          stroke-width="1"
+          opacity="0.8"
+        />`;
+      
+      if (showDimensions) {
+        pieceContent += `
+        <text
+          x="${piece.x * scale + (piece.width * scale) / 2}"
+          y="${piece.y * scale + (piece.height * scale) / 2 - 5}"
+          text-anchor="middle"
+          font-size="10"
+          fill="#333"
+          font-weight="bold"
+          style="text-shadow: 1px 1px 2px rgba(255, 255, 255, 0.8); font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;"
+        >
+          ${piece.width}×${piece.height}
+        </text>
+        <text
+          x="${piece.x * scale + (piece.width * scale) / 2}"
+          y="${piece.y * scale + (piece.height * scale) / 2 + 10}"
+          text-anchor="middle"
+          font-size="9"
+          fill="#333"
+          style="text-shadow: 1px 1px 2px rgba(255, 255, 255, 0.8); font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;"
+        >
+          ${piece.description || piece.id}
+        </text>`;
+      }
+      
+      return `<g>${pieceContent}</g>`;
+    }).join('');
+
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<svg
+  width="${scaledWidth}"
+  height="${scaledHeight}"
+  viewBox="0 0 ${scaledWidth} ${scaledHeight}"
+  xmlns="http://www.w3.org/2000/svg"
+>
+  <!-- Peças colocadas -->
+  ${piecesElements}
   
-  if (showGrid) {
-    // Linhas verticais
-    for (let x = 0; x <= stockWidth; x += gridSize) {
-      gridLines.push(
-        <line
-          key={`v-${x}`}
-          x1={x * scale}
-          y1={0}
-          x2={x * scale}
-          y2={scaledHeight}
-          stroke="#e0e0e0"
-          strokeWidth="1"
-          strokeDasharray="2,2"
-        />
-      );
-    }
-    
-    // Linhas horizontais
-    for (let y = 0; y <= stockHeight; y += gridSize) {
-      gridLines.push(
-        <line
-          key={`h-${y}`}
-          x1={0}
-          y1={y * scale}
-          x2={scaledWidth}
-          y2={y * scale}
-          stroke="#e0e0e0"
-          strokeWidth="1"
-          strokeDasharray="2,2"
-        />
-      );
-    }
-  }
+  <!-- Dimensões do material -->
+  ${showDimensions ? `
+  <text
+    x="${scaledWidth / 2}"
+    y="-10"
+    text-anchor="middle"
+    font-size="12"
+    fill="#666"
+    font-weight="bold"
+  >
+    ${stockWidth} mm
+  </text>
+  <text
+    x="-10"
+    y="${scaledHeight / 2}"
+    text-anchor="middle"
+    font-size="12"
+    fill="#666"
+    font-weight="bold"
+    transform="rotate(-90, -10, ${scaledHeight / 2})"
+  >
+    ${stockHeight} mm
+  </text>` : ''}
+</svg>`;
+  };
 
   return (
     <div className="cutting-visualizer">
@@ -87,6 +144,13 @@ const CuttingVisualizer: React.FC<CuttingVisualizerProps> = ({
           <span>Material: {stockWidth} × {stockHeight} mm</span>
           <span>Peças: {piecesPlaced.length}</span>
           <span>Escala: 1:{Math.round(1/scale)}</span>
+          <button 
+            onClick={exportPiecesOnly} 
+            className="export-btn"
+            title="Exportar apenas as peças em SVG (sem grade)"
+          >
+            📤 Exportar SVG
+          </button>
         </div>
       </div>
       
@@ -109,12 +173,41 @@ const CuttingVisualizer: React.FC<CuttingVisualizerProps> = ({
           />
           
           {/* Grade */}
-          {gridLines}
+          {showGrid && (
+            <>
+              {/* Linhas verticais */}
+              {Array.from({ length: Math.ceil(stockWidth / 50) + 1 }).map((_, i) => (
+                <line
+                  key={`v-${i * 50}`}
+                  x1={i * 50 * scale}
+                  y1={0}
+                  x2={i * 50 * scale}
+                  y2={scaledHeight}
+                  stroke="#e0e0e0"
+                  strokeWidth="1"
+                  strokeDasharray="2,2"
+                />
+              ))}
+              
+              {/* Linhas horizontais */}
+              {Array.from({ length: Math.ceil(stockHeight / 50) + 1 }).map((_, i) => (
+                <line
+                  key={`h-${i * 50}`}
+                  x1={0}
+                  y1={i * 50 * scale}
+                  x2={scaledWidth}
+                  y2={i * 50 * scale}
+                  stroke="#e0e0e0"
+                  strokeWidth="1"
+                  strokeDasharray="2,2"
+                />
+              ))}
+            </>
+          )}
           
           {/* Peças colocadas */}
           {piecesPlaced.map((piece, index) => {
             const colorIndex = index % colors.length;
-            const isRotated = piece.id.includes('_rot');
             
             return (
               <g key={piece.id}>
@@ -129,59 +222,28 @@ const CuttingVisualizer: React.FC<CuttingVisualizerProps> = ({
                   opacity="0.8"
                 />
                 
-                {/* Indicador de rotação */}
-                {isRotated && (
-                  <text
-                    x={piece.x * scale + (piece.width * scale) / 2}
-                    y={piece.y * scale + (piece.height * scale) / 2}
-                    textAnchor="middle"
-                    dominantBaseline="middle"
-                    fontSize="16"
-                    fill="#333"
-                    fontWeight="bold"
-                  >
-                    🔄
-                  </text>
-                )}
-                
-                {/* Dimensões da peça */}
+                {/* Dimensões e descrição dentro da peça */}
                 {showDimensions && (
                   <>
+                    {/* Dimensões no centro da peça */}
                     <text
                       x={piece.x * scale + (piece.width * scale) / 2}
-                      y={piece.y * scale - 5}
+                      y={piece.y * scale + (piece.height * scale) / 2 - 5}
                       textAnchor="middle"
                       fontSize="10"
                       fill="#333"
+                      fontWeight="bold"
                     >
                       {piece.width}×{piece.height}
                     </text>
-                    {/* Fundo para a descrição */}
-                    {(() => {
-                      const description = piece.description || piece.id;
-                      const textWidth = description.length * 6; // Aproximação do tamanho do texto
-                      const bgWidth = Math.max(textWidth, 60);
-                      
-                      return (
-                        <rect
-                          x={piece.x * scale + (piece.width * scale) / 2 - bgWidth / 2}
-                          y={piece.y * scale + (piece.height * scale) + 5}
-                          width={bgWidth}
-                          height="15"
-                          fill="rgba(255, 255, 255, 0.9)"
-                          stroke="rgba(0, 0, 0, 0.2)"
-                          strokeWidth="0.5"
-                          rx="3"
-                        />
-                      );
-                    })()}
+                    
+                    {/* Descrição abaixo das dimensões */}
                     <text
                       x={piece.x * scale + (piece.width * scale) / 2}
-                      y={piece.y * scale + (piece.height * scale) + 15}
+                      y={piece.y * scale + (piece.height * scale) / 2 + 10}
                       textAnchor="middle"
                       fontSize="9"
                       fill="#333"
-                      fontWeight="bold"
                     >
                       {piece.description || piece.id}
                     </text>
@@ -226,11 +288,7 @@ const CuttingVisualizer: React.FC<CuttingVisualizerProps> = ({
         <div className="legend-items">
           <div className="legend-item">
             <div className="legend-color" style={{ backgroundColor: '#FF6B6B' }}></div>
-            <span>Peças normais</span>
-          </div>
-          <div className="legend-item">
-            <span>🔄</span>
-            <span>Peças rotacionadas</span>
+            <span>Peças</span>
           </div>
           <div className="legend-item">
             <div className="legend-color" style={{ backgroundColor: '#e0e0e0', border: '1px dashed #ccc' }}></div>
