@@ -1,0 +1,365 @@
+.App {
+  text-align: center;
+  min-height: 100vh;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: #333;
+}
+
+.App-header {
+  background: rgba(255, 255, 255, 0.95);
+  padding: 2rem;
+  margin-bottom: 2rem;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.App-header h1 {
+  margin: 0;
+  color: #2c3e50;
+  font-size: 2.5rem;
+  font-weight: bold;
+}
+
+.App-header p {
+  margin: 0.5rem 0 0 0;
+  color: #7f8c8d;
+  font-size: 1.1rem;
+}
+
+.App-main {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 2rem;
+}
+
+.config-section {
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 12px;
+  padding: 2rem;
+  margin-bottom: 2rem;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.config-section h2 {
+  color: #2c3e50;
+  margin-bottom: 1.5rem;
+  font-size: 1.8rem;
+}
+
+.config-section h3 {
+  color: #34495e;
+  margin: 1.5rem 0 1rem 0;
+  font-size: 1.3rem;
+}
+
+.stock-config, .pieces-config, .options-config {
+  margin-bottom: 2rem;
+}
+
+.input-group {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.input-group label {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 500;
+}
+
+.input-group input {
+  padding: 0.5rem;
+  border: 2px solid #ddd;
+  border-radius: 6px;
+  font-size: 1rem;
+  width: 120px;
+  text-align: center;
+}
+
+.input-group input:focus {
+  outline: none;
+  border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.piece-input {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+  padding: 0.5rem;
+  background: #f8f9fa;
+  border-radius: 6px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.piece-input span {
+  font-weight: 500;
+}
+
+.rotation-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.9rem;
+  color: #666;
+  cursor: pointer;
+}
+
+.rotation-checkbox input[type="checkbox"] {
+  width: auto;
+  margin: 0;
+  cursor: pointer;
+}
+
+.description-input {
+  padding: 0.3rem;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  width: 120px;
+  font-size: 0.9rem;
+}
+
+.description-input:focus {
+  outline: none;
+  border-color: #667eea;
+  box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.1);
+}
+
+.piece-input input {
+  padding: 0.3rem;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  width: 80px;
+  text-align: center;
+}
+
+.piece-input input:focus {
+  outline: none;
+  border-color: #667eea;
+}
+
+.remove-btn {
+  background: #e74c3c;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  padding: 0.3rem 0.5rem;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.remove-btn:hover {
+  background: #c0392b;
+}
+
+.add-btn {
+  background: #27ae60;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+  font-size: 1rem;
+  margin-top: 1rem;
+}
+
+.add-btn:hover {
+  background: #229954;
+}
+
+.options-config label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.options-config input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+}
+
+.options-config input[type="number"] {
+  padding: 0.3rem;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  width: 100px;
+  text-align: center;
+}
+
+.actions {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 2rem;
+}
+
+.btn-primary, .btn-secondary {
+  padding: 0.8rem 1.5rem;
+  border: none;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  min-width: 150px;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+}
+
+.btn-primary:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 12px rgba(102, 126, 234, 0.3);
+}
+
+.btn-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn-secondary {
+  background: #6c757d;
+  color: white;
+}
+
+.btn-secondary:hover {
+  background: #5a6268;
+  transform: translateY(-2px);
+}
+
+.error-section {
+  background: #f8d7da;
+  border: 1px solid #f5c6cb;
+  border-radius: 8px;
+  padding: 1rem;
+  margin-bottom: 2rem;
+  color: #721c24;
+}
+
+.error-section h3 {
+  margin: 0 0 0.5rem 0;
+  color: #721c24;
+}
+
+.result-section {
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 12px;
+  padding: 2rem;
+  margin-bottom: 2rem;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.result-section h2 {
+  color: #2c3e50;
+  margin-bottom: 1.5rem;
+  font-size: 1.8rem;
+}
+
+.result-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+
+.result-item {
+  background: #f8f9fa;
+  padding: 1rem;
+  border-radius: 8px;
+  border-left: 4px solid #667eea;
+}
+
+.result-item strong {
+  color: #2c3e50;
+}
+
+.result-actions {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 2rem;
+}
+
+.pieces-placed h3 {
+  color: #34495e;
+  margin-bottom: 1rem;
+  font-size: 1.3rem;
+}
+
+.pieces-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+}
+
+.piece-item {
+  background: #e8f4fd;
+  padding: 1rem;
+  border-radius: 8px;
+  border: 1px solid #bee5eb;
+}
+
+.piece-item strong {
+  color: #0c5460;
+  display: block;
+  margin-bottom: 0.5rem;
+}
+
+.piece-item div {
+  color: #495057;
+  font-size: 0.9rem;
+  margin-bottom: 0.2rem;
+}
+
+/* Responsividade */
+@media (max-width: 768px) {
+  .App-header h1 {
+    font-size: 2rem;
+  }
+  
+  .App-main {
+    padding: 0 1rem;
+  }
+  
+  .config-section {
+    padding: 1rem;
+  }
+  
+  .input-group {
+    flex-direction: column;
+    align-items: center;
+  }
+  
+  .piece-input {
+    flex-direction: column;
+    text-align: center;
+  }
+  
+  .actions {
+    flex-direction: column;
+    align-items: center;
+  }
+  
+  .btn-primary, .btn-secondary {
+    width: 100%;
+    max-width: 300px;
+  }
+  
+  .result-summary {
+    grid-template-columns: 1fr;
+  }
+  
+  .pieces-grid {
+    grid-template-columns: 1fr;
+  }
+}

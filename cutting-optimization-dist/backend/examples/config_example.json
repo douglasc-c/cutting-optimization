@@ -1,0 +1,14 @@
+{
+  "name": "Exemplo de Configuração",
+  "stock_width": 1200,
+  "stock_height": 800,
+  "pieces": [
+    [200, 300, 3],
+    [150, 200, 5],
+    [100, 100, 8],
+    [250, 150, 2]
+  ],
+  "allow_rotation": true,
+  "guillotine_cut": true,
+  "time_limit": 300
+}
