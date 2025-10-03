@@ -20,11 +20,15 @@ function createWindow() {
 
   // Carregar a aplicação React
   const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
-  mainWindow.loadURL(
-    isDev
-      ? 'http://localhost:3000'
-      : `file://${path.join(__dirname, '../build/index.html')}`
-  );
+  
+  if (isDev) {
+    mainWindow.loadURL('http://localhost:3000');
+  } else {
+    // Para produção, carregar do diretório build
+    const indexPath = path.join(__dirname, 'index.html');
+    console.log('Carregando index.html de:', indexPath);
+    mainWindow.loadFile(indexPath);
+  }
 
   // Abrir DevTools em desenvolvimento
   if (process.env.NODE_ENV === 'development') {
@@ -33,6 +37,21 @@ function createWindow() {
 
   mainWindow.on('closed', () => {
     mainWindow = null;
+  });
+
+  // Adicionar logs para debug
+  mainWindow.webContents.on('did-finish-load', () => {
+    console.log('Página carregada com sucesso');
+  });
+
+  mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
+    console.error('Erro ao carregar página:', errorCode, errorDescription, validatedURL);
+  });
+
+  // Abrir DevTools em caso de erro
+  mainWindow.webContents.on('crashed', () => {
+    console.error('Aplicação travou');
+    mainWindow.webContents.openDevTools();
   });
 }
 
@@ -54,22 +73,48 @@ app.on('activate', () => {
 
 ipcMain.handle('optimize-cutting', async (event, config) => {
   try {
-    // Executar o script Python com a configuração real
-    const pythonScript = path.resolve(__dirname, '..', '..', 'backend', 'main.py');
+    // Determinar o caminho do backend baseado se está empacotado ou não
+    const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
+    const backendPath = isDev 
+      ? path.resolve(__dirname, '..', '..', 'backend')
+      : path.resolve(process.resourcesPath, 'backend');
+    
+    const pythonScript = path.join(backendPath, 'main.py');
     
     // Verificar se o arquivo existe
     if (!fs.existsSync(pythonScript)) {
       throw new Error(`Script Python não encontrado: ${pythonScript}`);
     }
     
-    // Criar um arquivo temporário com a configuração
-    const tempConfigPath = path.resolve(__dirname, '..', '..', 'backend', 'temp_config.json');
+    // Criar um arquivo temporário com a configuração no diretório temporário do sistema
+    const os = require('os');
+    const tempDir = os.tmpdir();
+    const tempConfigPath = path.join(tempDir, 'cutting_optimization_config.json');
+    
+    // Criar diretório temporário para saída
+    const tempOutputDir = path.join(tempDir, 'cutting_optimization_output');
+    if (!fs.existsSync(tempOutputDir)) {
+      fs.mkdirSync(tempOutputDir, { recursive: true });
+    }
+    
+    console.log('Backend path:', backendPath);
+    console.log('Python script:', pythonScript);
+    console.log('Temp config path:', tempConfigPath);
+    console.log('Temp output dir:', tempOutputDir);
+    
     fs.writeFileSync(tempConfigPath, JSON.stringify(config, null, 2));
     
     // Verificar se python3 está disponível
     const pythonCommand = process.platform === 'win32' ? 'python' : 'python3';
     
-    const pythonProcess = spawn(pythonCommand, [pythonScript, '--config', tempConfigPath, '--json-output']);
+    const pythonProcess = spawn(pythonCommand, [
+      pythonScript, 
+      '--config', tempConfigPath, 
+      '--output-dir', tempOutputDir,
+      '--json-output'
+    ], {
+      cwd: backendPath
+    });
     
     return new Promise((resolve, reject) => {
       // Adicionar timeout
@@ -91,11 +136,17 @@ ipcMain.handle('optimize-cutting', async (event, config) => {
               pythonProcess.on('close', (code) => {
           clearTimeout(timeout); // Limpar timeout
           
-          // Limpar arquivo temporário
+          // Limpar arquivos temporários
           try {
-            fs.unlinkSync(tempConfigPath);
+            if (fs.existsSync(tempConfigPath)) {
+              fs.unlinkSync(tempConfigPath);
+            }
+            // Limpar diretório de saída temporário
+            if (fs.existsSync(tempOutputDir)) {
+              fs.rmSync(tempOutputDir, { recursive: true, force: true });
+            }
           } catch (e) {
-            console.log('Erro ao remover arquivo temporário:', e);
+            console.log('Erro ao remover arquivos temporários:', e);
           }
           
           if (code === 0) {

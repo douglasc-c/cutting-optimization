@@ -158,20 +158,20 @@ OS=$(uname -s)
 case $OS in
     Darwin*)
         print_message "Construindo para macOS..."
-        electron-builder --config electron-builder-config.json --mac
+        npm run dist-mac
         ;;
     Linux*)
         print_message "Construindo para Linux..."
-        electron-builder --config electron-builder-config.json --linux
+        npm run dist-linux
         ;;
     MINGW*|CYGWIN*|MSYS*)
         print_message "Construindo para Windows..."
-        electron-builder --config electron-builder-config.json --win
+        npm run dist-win
         ;;
     *)
         print_warning "Sistema operacional não reconhecido: $OS"
         print_message "Tentando build genérico..."
-        electron-builder --config electron-builder-config.json
+        npm run dist
         ;;
 esac
 

@@ -113,6 +113,23 @@ electron-installer: ## Cria instalador Electron
 	@chmod +x scripts/build-electron-installer.sh
 	@./scripts/build-electron-installer.sh
 
+electron-all: ## Cria instaladores para todas as plataformas
+	@echo "🔨 Criando instaladores para todas as plataformas..."
+	@chmod +x scripts/build-all-platforms.sh
+	@./scripts/build-all-platforms.sh
+
+electron-mac: ## Cria instalador para macOS
+	@echo "🍎 Criando instalador para macOS..."
+	@cd frontend && npm run dist-mac
+
+electron-win: ## Cria instalador para Windows
+	@echo "🪟 Criando instalador para Windows..."
+	@cd frontend && npm run dist-win
+
+electron-linux: ## Cria instalador para Linux
+	@echo "🐧 Criando instalador para Linux..."
+	@cd frontend && npm run dist-linux
+
 install-linux: ## Instala no Linux/macOS
 	@echo "🐧 Instalando no Linux/macOS..."
 	@chmod +x scripts/install.sh
