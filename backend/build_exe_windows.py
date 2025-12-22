@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 Script para criar executável standalone do backend para Windows usando PyInstaller
 Este script cria um executável que não requer Python instalado no sistema do usuário
@@ -10,6 +11,12 @@ import subprocess
 import shutil
 from pathlib import Path
 
+# Configurar encoding UTF-8 para Windows
+if sys.platform == 'win32':
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+
 def check_pyinstaller():
     """Verifica se PyInstaller está instalado"""
     try:
@@ -20,19 +27,19 @@ def check_pyinstaller():
 
 def install_pyinstaller():
     """Instala PyInstaller"""
-    print("📦 Instalando PyInstaller...")
+    print("[*] Instalando PyInstaller...")
     try:
         # Tentar instalar normalmente primeiro
         subprocess.check_call([sys.executable, "-m", "pip", "install", "pyinstaller"])
     except subprocess.CalledProcessError:
         # Se falhar, tentar com --user
-        print("⚠️  Tentando instalar com --user...")
+        print("[!] Tentando instalar com --user...")
         try:
             subprocess.check_call([sys.executable, "-m", "pip", "install", "--user", "pyinstaller"])
         except subprocess.CalledProcessError:
-            print("❌ Erro ao instalar PyInstaller.")
-            print("   Por favor, instale manualmente: pip install pyinstaller")
-            print("   Ou use: pip install --user pyinstaller")
+            print("[ERROR] Erro ao instalar PyInstaller.")
+            print("        Por favor, instale manualmente: pip install pyinstaller")
+            print("        Ou use: pip install --user pyinstaller")
             raise
 
 def install_dependencies():
@@ -40,7 +47,7 @@ def install_dependencies():
     backend_dir = Path(__file__).parent
     requirements_file = backend_dir / "requirements.txt"
     
-    print("📦 Instalando dependências do backend...")
+    print("[*] Instalando dependencias do backend...")
     subprocess.check_call([
         sys.executable, "-m", "pip", "install", "-r", str(requirements_file)
     ])
@@ -54,7 +61,7 @@ def build_executable():
     
     # Limpar builds anteriores
     if dist_dir.exists():
-        print("🧹 Limpando builds anteriores...")
+        print("[*] Limpando builds anteriores...")
         shutil.rmtree(dist_dir)
     if build_dir.exists():
         shutil.rmtree(build_dir)
@@ -133,9 +140,9 @@ exe = EXE(
     with open(spec_file, "w", encoding="utf-8") as f:
         f.write(spec_content)
     
-    print("🔨 Construindo executável standalone...")
-    print(f"📁 Diretório: {backend_dir}")
-    print(f"📄 Arquivo principal: {main_py}")
+    print("[*] Construindo executavel standalone...")
+    print(f"[*] Diretorio: {backend_dir}")
+    print(f"[*] Arquivo principal: {main_py}")
     
     # Executar PyInstaller
     subprocess.check_call([
@@ -148,40 +155,41 @@ exe = EXE(
     exe_path = dist_dir / "cutting-optimization-backend.exe"
     
     if exe_path.exists():
-        print(f"\n✅ Executável criado com sucesso!")
-        print(f"📦 Localização: {exe_path}")
-        print(f"📊 Tamanho: {exe_path.stat().st_size / (1024*1024):.2f} MB")
+        size_mb = exe_path.stat().st_size / (1024*1024)
+        print(f"\n[OK] Executavel criado com sucesso!")
+        print(f"[*] Localizacao: {exe_path}")
+        print(f"[*] Tamanho: {size_mb:.2f} MB")
         
         # Copiar para a raiz do backend para facilitar acesso
         target_path = backend_dir / "cutting-optimization-backend.exe"
         if target_path.exists():
             target_path.unlink()
         shutil.copy2(exe_path, target_path)
-        print(f"📋 Copiado para: {target_path}")
+        print(f"[*] Copiado para: {target_path}")
         
         return True
     else:
-        print("❌ Erro: Executável não foi criado!")
+        print("[ERROR] Erro: Executavel nao foi criado!")
         return False
 
 def main():
     """Função principal"""
     print("=" * 60)
-    print("🔨 BUILD DO BACKEND PARA WINDOWS")
+    print("BUILD DO BACKEND PARA WINDOWS")
     print("=" * 60)
     print()
     
     # Verificar Python
-    print(f"🐍 Python: {sys.version}")
-    print(f"📁 Diretório de trabalho: {Path.cwd()}")
+    print(f"Python: {sys.version}")
+    print(f"Diretorio de trabalho: {Path.cwd()}")
     print()
     
     # Verificar e instalar PyInstaller
     if not check_pyinstaller():
-        print("⚠️  PyInstaller não encontrado")
+        print("[!] PyInstaller nao encontrado")
         install_pyinstaller()
     else:
-        print("✅ PyInstaller encontrado")
+        print("[OK] PyInstaller encontrado")
     
     print()
     
@@ -195,17 +203,17 @@ def main():
     
     if success:
         print("=" * 60)
-        print("✅ BUILD CONCLUÍDO COM SUCESSO!")
+        print("[OK] BUILD CONCLUIDO COM SUCESSO!")
         print("=" * 60)
         print()
-        print("📝 Próximos passos:")
-        print("   1. O executável está em: backend/cutting-optimization-backend.exe")
-        print("   2. Execute o build do Electron para criar o instalador completo")
+        print("Proximos passos:")
+        print("  1. O executavel esta em: backend/cutting-optimization-backend.exe")
+        print("  2. Execute o build do Electron para criar o instalador completo")
         print()
         return 0
     else:
         print("=" * 60)
-        print("❌ BUILD FALHOU!")
+        print("[ERROR] BUILD FALHOU!")
         print("=" * 60)
         return 1
 

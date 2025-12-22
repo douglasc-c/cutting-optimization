@@ -71,3 +71,4 @@ echo "O arquivo cutting-optimization-backend.exe está pronto"
 echo "para ser incluído no instalador Electron."
 echo ""
 
+
