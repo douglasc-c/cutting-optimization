@@ -1,0 +1,152 @@
+name: Build Windows Installer (Debug)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: List directory structure
+      run: |
+        Write-Host "=== Project Structure ==="
+        Get-ChildItem -Recurse -Depth 2 | Select-Object FullName
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.9'
+    
+    - name: Verify Python
+      run: |
+        python --version
+        python -m pip --version
+    
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        cd backend
+        Write-Host "Current directory: $(Get-Location)"
+        Write-Host "Files in backend:"
+        Get-ChildItem
+        pip install -r requirements.txt
+        pip install pyinstaller
+    
+    - name: Build backend executable
+      run: |
+        cd backend
+        Write-Host "Building executable..."
+        python build_exe_windows.py 2>&1 | Tee-Object -FilePath build.log
+        Get-Content build.log
+    
+    - name: Verify backend executable exists
+      run: |
+        Write-Host "Checking for executable..."
+        $exePath = "backend\cutting-optimization-backend.exe"
+        $distPath = "backend\dist\cutting-optimization-backend.exe"
+        
+        if (Test-Path $exePath) {
+          Write-Host "✅ Found: $exePath"
+          $file = Get-Item $exePath
+          Write-Host "Size: $($file.Length / 1MB) MB"
+        }
+        
+        if (Test-Path $distPath) {
+          Write-Host "✅ Found: $distPath"
+          $file = Get-Item $distPath
+          Write-Host "Size: $($file.Length / 1MB) MB"
+        }
+        
+        if (-not (Test-Path $exePath) -and -not (Test-Path $distPath)) {
+          Write-Host "❌ Executable not found in either location!"
+          Write-Host "Listing backend directory:"
+          Get-ChildItem backend -Recurse | Select-Object FullName
+          exit 1
+        }
+    
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+    
+    - name: Verify Node.js
+      run: |
+        node --version
+        npm --version
+    
+    - name: Install frontend dependencies
+      run: |
+        cd frontend
+        Write-Host "Current directory: $(Get-Location)"
+        Write-Host "Files in frontend:"
+        Get-ChildItem
+        if (Test-Path "package-lock.json") {
+          Write-Host "Using npm ci"
+          npm ci
+        } else {
+          Write-Host "Using npm install"
+          npm install
+        }
+    
+    - name: Install electron-builder
+      run: |
+        cd frontend
+        npm install --save-dev electron-builder
+        npm list electron-builder
+    
+    - name: Build React app
+      run: |
+        cd frontend
+        npm run build
+        Write-Host "Build directory contents:"
+        if (Test-Path "build") {
+          Get-ChildItem build -Recurse | Select-Object FullName
+        } else {
+          Write-Host "❌ Build directory not found!"
+          exit 1
+        }
+    
+    - name: Verify backend executable for electron
+      run: |
+        $exePath = "backend\cutting-optimization-backend.exe"
+        if (-not (Test-Path $exePath)) {
+          Write-Host "❌ Backend executable not found at: $exePath"
+          Write-Host "This is required for electron-builder!"
+          exit 1
+        }
+        Write-Host "✅ Backend executable ready for electron-builder"
+    
+    - name: Build Windows installer
+      run: |
+        cd frontend
+        Write-Host "Building Windows installer..."
+        npm run dist-win 2>&1 | Tee-Object -FilePath electron-build.log
+        Get-Content electron-build.log
+    
+    - name: List dist files
+      run: |
+        Write-Host "=== Files in frontend\dist ==="
+        if (Test-Path "frontend\dist") {
+          Get-ChildItem -Path "frontend\dist" -Recurse | ForEach-Object {
+            Write-Host "$($_.FullName) - $($_.Length / 1MB) MB"
+          }
+        } else {
+          Write-Host "❌ dist folder not found!"
+          exit 1
+        }
+    
+    - name: Upload installer artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: windows-installer-debug
+        path: |
+          frontend/dist/**/*.exe
+          backend/build.log
+          frontend/electron-build.log
+        retention-days: 7
+        if-no-files-found: warn
+

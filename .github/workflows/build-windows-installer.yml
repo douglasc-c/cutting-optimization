@@ -31,29 +31,64 @@ jobs:
     - name: Build backend executable
       run: |
         cd backend
+        Write-Host "Current directory: $(Get-Location)"
+        Write-Host "Python version:"
+        python --version
+        Write-Host "Building executable..."
         python build_exe_windows.py
+        Write-Host "Build completed. Checking for executable..."
+        if (Test-Path "cutting-optimization-backend.exe") {
+          Write-Host "✅ Executable found in backend root"
+        }
+        if (Test-Path "dist\cutting-optimization-backend.exe") {
+          Write-Host "✅ Executable found in backend/dist"
+        }
+      continue-on-error: false
+    
+    - name: Verify backend executable
+      run: |
+        if (Test-Path "backend\cutting-optimization-backend.exe") {
+          Write-Host "✅ Backend executable created successfully"
+          $file = Get-Item "backend\cutting-optimization-backend.exe"
+          Write-Host "Size: $($file.Length / 1MB) MB"
+        } else {
+          Write-Host "❌ Backend executable not found!"
+          exit 1
+        }
     
     - name: Set up Node.js
       uses: actions/setup-node@v4
       with:
         node-version: '18'
-        cache: 'npm'
-        cache-dependency-path: frontend/package-lock.json
     
     - name: Install frontend dependencies
       run: |
         cd frontend
-        npm ci
-    
-    - name: Build React app
-      run: |
-        cd frontend
-        npm run build
+        if (Test-Path "package-lock.json") {
+          npm ci
+        } else {
+          npm install
+        }
     
     - name: Install electron-builder
       run: |
         cd frontend
         npm install --save-dev electron-builder
+    
+    - name: Build React app
+      run: |
+        cd frontend
+        npm run build
+      continue-on-error: false
+    
+    - name: Verify React build
+      run: |
+        if (Test-Path "frontend\build\index.html") {
+          Write-Host "✅ React build created successfully"
+        } else {
+          Write-Host "❌ React build not found!"
+          exit 1
+        }
     
     - name: Build Windows installer
       run: |
@@ -61,19 +96,32 @@ jobs:
         npm run dist-win
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      continue-on-error: false
+    
+    - name: List dist files
+      run: |
+        Write-Host "Files in frontend\dist:"
+        if (Test-Path "frontend\dist") {
+          Get-ChildItem -Path "frontend\dist" -Recurse | ForEach-Object {
+            Write-Host $_.FullName
+          }
+        } else {
+          Write-Host "❌ dist folder not found!"
+        }
     
     - name: Upload installer artifact
       uses: actions/upload-artifact@v4
       with:
         name: windows-installer
-        path: frontend/dist/*.exe
+        path: frontend/dist/**/*.exe
         retention-days: 30
+        if-no-files-found: error
     
     - name: Create Release
       if: startsWith(github.ref, 'refs/tags/')
       uses: softprops/action-gh-release@v1
       with:
-        files: frontend/dist/*.exe
+        files: frontend/dist/**/*.exe
         draft: false
         prerelease: false
       env:
