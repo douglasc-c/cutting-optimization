@@ -64,16 +64,11 @@ jobs:
     - name: Install frontend dependencies
       run: |
         cd frontend
-        if (Test-Path "package-lock.json") {
-          npm ci
-        } else {
-          npm install
-        }
-    
-    - name: Install electron-builder
-      run: |
-        cd frontend
-        npm install --save-dev electron-builder
+        Write-Host "Installing all dependencies (including dev)..."
+        npm install
+        Write-Host "Verifying Electron installation..."
+        npm list electron
+        npm list electron-builder
     
     - name: Build React app
       run: |
@@ -93,9 +88,13 @@ jobs:
     - name: Build Windows installer
       run: |
         cd frontend
+        Write-Host "Verifying Electron before build..."
+        npm list electron
+        Write-Host "Building Windows installer..."
         npm run dist-win
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        CI: "false"
       continue-on-error: false
     
     - name: List dist files

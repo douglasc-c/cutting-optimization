@@ -44,6 +44,7 @@
   "build": {
     "appId": "com.cuttingoptimization.app",
     "productName": "Cutting Optimization",
+    "electronVersion": "37.3.1",
     "directories": {
       "output": "dist"
     },
