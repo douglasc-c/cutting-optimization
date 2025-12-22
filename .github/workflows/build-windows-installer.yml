@@ -1,0 +1,81 @@
+name: Build Windows Installer
+
+on:
+  workflow_dispatch:  # Permite executar manualmente
+  push:
+    tags:
+      - 'v*'  # Executa quando uma tag de versão é criada
+  release:
+    types: [created]  # Executa quando um release é criado
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.9'
+    
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        cd backend
+        pip install -r requirements.txt
+        pip install pyinstaller
+    
+    - name: Build backend executable
+      run: |
+        cd backend
+        python build_exe_windows.py
+    
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: frontend/package-lock.json
+    
+    - name: Install frontend dependencies
+      run: |
+        cd frontend
+        npm ci
+    
+    - name: Build React app
+      run: |
+        cd frontend
+        npm run build
+    
+    - name: Install electron-builder
+      run: |
+        cd frontend
+        npm install --save-dev electron-builder
+    
+    - name: Build Windows installer
+      run: |
+        cd frontend
+        npm run dist-win
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Upload installer artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: windows-installer
+        path: frontend/dist/*.exe
+        retention-days: 30
+    
+    - name: Create Release
+      if: startsWith(github.ref, 'refs/tags/')
+      uses: softprops/action-gh-release@v1
+      with:
+        files: frontend/dist/*.exe
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+

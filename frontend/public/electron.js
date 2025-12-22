@@ -79,11 +79,30 @@ ipcMain.handle('optimize-cutting', async (event, config) => {
       ? path.resolve(__dirname, '..', '..', 'backend')
       : path.resolve(process.resourcesPath, 'backend');
     
+    // Tentar usar executável standalone primeiro (PyInstaller)
+    const standaloneExe = process.platform === 'win32' 
+      ? path.join(backendPath, 'cutting-optimization-backend.exe')
+      : path.join(backendPath, 'cutting-optimization-backend');
+    
     const pythonScript = path.join(backendPath, 'main.py');
     
-    // Verificar se o arquivo existe
-    if (!fs.existsSync(pythonScript)) {
-      throw new Error(`Script Python não encontrado: ${pythonScript}`);
+    // Verificar qual método usar: executável standalone ou Python do sistema
+    let commandToExecute;
+    let argsToExecute;
+    
+    if (fs.existsSync(standaloneExe)) {
+      // Usar executável standalone (não precisa de Python instalado)
+      commandToExecute = standaloneExe;
+      argsToExecute = [];
+      console.log('Usando executável standalone do backend');
+    } else if (fs.existsSync(pythonScript)) {
+      // Usar Python do sistema (requer Python instalado)
+      const pythonCommand = process.platform === 'win32' ? 'python' : 'python3';
+      commandToExecute = pythonCommand;
+      argsToExecute = [pythonScript];
+      console.log('Usando Python do sistema (requer Python instalado)');
+    } else {
+      throw new Error(`Backend não encontrado. Procurando em: ${backendPath}`);
     }
     
     // Criar um arquivo temporário com a configuração no diretório temporário do sistema
@@ -98,21 +117,18 @@ ipcMain.handle('optimize-cutting', async (event, config) => {
     }
     
     console.log('Backend path:', backendPath);
-    console.log('Python script:', pythonScript);
+    console.log('Command:', commandToExecute);
     console.log('Temp config path:', tempConfigPath);
     console.log('Temp output dir:', tempOutputDir);
     
     fs.writeFileSync(tempConfigPath, JSON.stringify(config, null, 2));
     
-    // Verificar se python3 está disponível
-    const pythonCommand = process.platform === 'win32' ? 'python' : 'python3';
+    // Adicionar argumentos comuns
+    argsToExecute.push('--config', tempConfigPath);
+    argsToExecute.push('--output-dir', tempOutputDir);
+    argsToExecute.push('--json-output');
     
-    const pythonProcess = spawn(pythonCommand, [
-      pythonScript, 
-      '--config', tempConfigPath, 
-      '--output-dir', tempOutputDir,
-      '--json-output'
-    ], {
+    const pythonProcess = spawn(commandToExecute, argsToExecute, {
       cwd: backendPath
     });
     

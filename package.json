@@ -14,7 +14,9 @@
     "test:frontend": "cd frontend && npm test",
     "build:frontend": "cd frontend && npm run build",
     "dist:frontend": "cd frontend && npm run dist",
-    "clean": "rm -rf frontend/node_modules backend/build backend/dist"
+    "build:backend-exe": "cd backend && python build_exe_windows.py",
+    "build:windows-installer": "scripts\\build-windows-installer.bat",
+    "clean": "rm -rf frontend/node_modules backend/build backend/dist frontend/dist backend/cutting-optimization-backend.exe"
   },
   "keywords": [
     "cutting",
