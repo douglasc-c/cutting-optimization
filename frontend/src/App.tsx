@@ -12,19 +12,38 @@ interface CuttingConfig {
   time_limit: number;
 }
 
+interface PiecePlaced {
+  id: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  area: number;
+}
+
+interface StockUsed {
+  width: number;
+  height: number;
+}
+
+interface EfficiencyMetrics {
+  area_efficiency: number;
+  waste_percentage: number;
+}
+
 interface OptimizationResult {
   success: boolean;
   algorithm: string;
   result: {
-    pieces_placed: any[];
-    stock_used: any;
+    pieces_placed: PiecePlaced[];
+    stock_used: StockUsed;
     waste_percentage: number;
     execution_time: number;
     is_optimal: boolean;
     total_area: number;
     used_area: number;
   };
-  efficiency_metrics: any;
+  efficiency_metrics: EfficiencyMetrics;
   error?: string;
 }
 
@@ -42,13 +61,10 @@ function App() {
 
   // Teste da API do Electron na inicialização
   useEffect(() => {
-    console.log('Testando API do Electron...');
-    if (window.electronAPI) {
-      console.log('✅ API do Electron disponível');
-      console.log('Métodos disponíveis:', Object.keys(window.electronAPI));
-    } else {
-      console.log('❌ API do Electron não disponível');
-      console.log('Isso é normal se executado no navegador');
+    // Verificação silenciosa da API do Electron
+    if (process.env.NODE_ENV === 'development' && window.electronAPI) {
+      // eslint-disable-next-line no-console
+      console.log('API do Electron disponível');
     }
   }, []);
 
