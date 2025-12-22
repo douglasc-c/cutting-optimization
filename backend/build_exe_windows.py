@@ -54,10 +54,15 @@ def install_dependencies():
 
 def build_executable():
     """Constrói o executável standalone"""
-    backend_dir = Path(__file__).parent
+    backend_dir = Path(__file__).parent.resolve()
     main_py = backend_dir / "main.py"
     dist_dir = backend_dir / "dist"
     build_dir = backend_dir / "build"
+    
+    # Verificar se main.py existe
+    if not main_py.exists():
+        print(f"[ERROR] Arquivo main.py nao encontrado em: {main_py}")
+        return False
     
     # Limpar builds anteriores
     if dist_dir.exists():
@@ -66,13 +71,16 @@ def build_executable():
     if build_dir.exists():
         shutil.rmtree(build_dir)
     
+    # Usar caminho relativo para o spec file (normalizar para Windows)
+    main_py_str = str(main_py).replace('\\', '/')
+    
     # Criar spec file para melhor controle
     spec_content = f"""# -*- mode: python ; coding: utf-8 -*-
 
 block_cipher = None
 
 a = Analysis(
-    ['{main_py}'],
+    [r'{main_py_str}'],
     pathex=[],
     binaries=[],
     datas=[
@@ -143,14 +151,15 @@ exe = EXE(
     print("[*] Construindo executavel standalone...")
     print(f"[*] Diretorio: {backend_dir}")
     print(f"[*] Arquivo principal: {main_py}")
+    print(f"[*] Spec file: {spec_file}")
     
-    # Executar PyInstaller
+    # Executar PyInstaller no diretório do backend
     subprocess.check_call([
         sys.executable, "-m", "PyInstaller",
         "--clean",
         "--noconfirm",
         str(spec_file)
-    ])
+    ], cwd=str(backend_dir))
     
     exe_path = dist_dir / "cutting-optimization-backend.exe"
     
