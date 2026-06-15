@@ -1,0 +1,30 @@
+name: Build e Deploy Windows
+
+# O build vai rodar toda vez que você enviar uma atualização (push) para a branch principal
+on:
+  push:
+    branches: [ "main" ] # Se a sua branch principal se chamar "master", mude para "master" aqui
+  workflow_dispatch:      # Isso permite que você clique em um botão para rodar manualmente se quiser
+
+jobs:
+  build-no-windows:
+    # Diz ao GitHub para usar uma máquina virtual com Windows
+    runs-on: windows-latest
+
+    steps:
+    # Passo 1: Baixa o código do seu projeto para dentro da máquina do GitHub
+    - name: Baixar o código do repositório
+      uses: actions/checkout@v4
+
+    # Passo 2: Aqui entra o comando de Build do seu projeto.
+    # Como não sei qual a tecnologia do seu projeto, deixei um exemplo universal de terminal.
+    # Você pode alterar a linha do 'run' abaixo para o comando que você usa (ex: npm run build, dotnet build, etc.)
+    - name: Executar o Build no Windows
+      run: |
+        echo "Iniciando o processo de build dentro do Windows do GitHub..."
+        dir
+        
+    # Passo 3: Aqui entra o seu Deploy.
+    - name: Executar o Deploy
+      run: |
+        echo "Espaço reservado para os seus comandos de deploy..."
