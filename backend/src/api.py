@@ -51,7 +51,8 @@ class CuttingOptimizationAPI:
                         stock_height: int,
                         pieces: List[Tuple[int, int, int, bool, str]],  # [width, height, quantity, allow_rotation, description]
                         algorithm: str = 'fast',
-                        time_limit: int = 60) -> Dict:
+                        time_limit: int = 60,
+                        optimization_mode: str = 'refined') -> Dict:
         """
         Executa otimização de corte
         
@@ -70,24 +71,93 @@ class CuttingOptimizationAPI:
             # Validar algoritmo
             if algorithm not in self.available_algorithms:
                 raise ValueError(f"Algoritmo '{algorithm}' não disponível")
+
+            normalized_pieces = []
+            for i, piece in enumerate(pieces):
+                if len(piece) >= 5:
+                    width, height, quantity, piece_allow_rotation, description = piece[:5]
+                elif len(piece) == 4:
+                    width, height, quantity, piece_allow_rotation = piece
+                    description = f"Peça {i + 1}"
+                elif len(piece) == 3:
+                    width, height, quantity = piece
+                    piece_allow_rotation = True
+                    description = f"Peça {i + 1}"
+                else:
+                    raise ValueError(f"Formato de peça inválido no índice {i}: {piece}")
+
+                normalized_pieces.append((
+                    int(width),
+                    int(height),
+                    int(quantity),
+                    bool(piece_allow_rotation),
+                    str(description)
+                ))
             
             # Validar entrada
-            validation = validate_pieces_fit_stock(stock_width, stock_height, pieces)
+            validation = validate_pieces_fit_stock(stock_width, stock_height, normalized_pieces)
             
             # Criar otimizador
             optimizer_class = self.available_algorithms[algorithm]
+
+            if algorithm == 'enhanced':
+                optimizer_pieces = normalized_pieces
+            else:
+                optimizer_pieces = [
+                    (width, height, quantity)
+                    for width, height, quantity, _, _ in normalized_pieces
+                ]
+
+            allow_rotation = any(piece_allow_rotation for _, _, _, piece_allow_rotation, _ in normalized_pieces)
             optimizer = optimizer_class(
                 stock_width=stock_width,
                 stock_height=stock_height,
-                pieces=pieces,
-                allow_rotation=True  # Mantido para compatibilidade, mas será ignorado
+                pieces=optimizer_pieces,
+                allow_rotation=allow_rotation
             )
             
             # Executar otimização
-            result = optimizer.optimize(time_limit=time_limit)
+            if algorithm == 'fast':
+                result = optimizer.optimize(
+                    time_limit=time_limit,
+                    optimization_mode=optimization_mode
+                )
+            else:
+                result = optimizer.optimize(time_limit=time_limit)
+
+            # Garantir descrição legível para todos os algoritmos (inclusive fast/simple/...)
+            description_by_base_id = {
+                f"piece_{idx}": description
+                for idx, (_, _, _, _, description) in enumerate(normalized_pieces)
+            }
+
+            for placed_piece in result.pieces_placed:
+                if placed_piece.get('description'):
+                    continue
+
+                piece_id = str(placed_piece.get('id', ''))
+                is_rotated = piece_id.endswith('_rot')
+                base_id = piece_id[:-4] if is_rotated else piece_id
+                base_description = description_by_base_id.get(base_id, piece_id)
+
+                placed_piece['description'] = (
+                    f"{base_description} (Rotacionada)" if is_rotated else base_description
+                )
             
             # Calcular métricas adicionais
             efficiency_metrics = calculate_efficiency_metrics(result)
+
+            pieces_placed = result.pieces_placed
+            if pieces_placed:
+                used_width = max(piece['x'] + piece['width'] for piece in pieces_placed)
+                used_height = max(piece['y'] + piece['height'] for piece in pieces_placed)
+            else:
+                used_width = 0
+                used_height = 0
+
+            bbox_area = used_width * used_height if used_width > 0 and used_height > 0 else 0
+            bbox_area_efficiency = (result.used_area / bbox_area) * 100 if bbox_area > 0 else 0.0
+            length_utilization_percentage = (used_height / stock_height) * 100 if stock_height > 0 else 0.0
             
             # Preparar resposta
             response = {
@@ -103,6 +173,13 @@ class CuttingOptimizationAPI:
                     'used_area': result.used_area
                 },
                 'efficiency_metrics': efficiency_metrics,
+                'layout_metrics': {
+                    'used_width': used_width,
+                    'used_height': used_height,
+                    'suggested_stock_height': used_height,
+                    'length_utilization_percentage': length_utilization_percentage,
+                    'bbox_area_efficiency': bbox_area_efficiency
+                },
                 'validation': validation,
                 'statistics': optimizer.get_statistics()
             }
@@ -239,6 +316,7 @@ class CuttingOptimizationAPI:
                     'pieces': config.pieces,
                     'allow_rotation': config.allow_rotation,
                     'time_limit': config.time_limit,
+                    'optimization_mode': getattr(config, 'optimization_mode', 'refined'),
                     'name': config.name
                 }
             }
@@ -266,6 +344,7 @@ class CuttingOptimizationAPI:
                 pieces=config['pieces'],
                 allow_rotation=config.get('allow_rotation', True),
                 time_limit=config.get('time_limit', 300),
+                optimization_mode=config.get('optimization_mode', 'refined'),
                 name=config.get('name', '')
             )
             

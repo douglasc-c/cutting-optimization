@@ -133,11 +133,17 @@ ipcMain.handle('optimize-cutting', async (event, config) => {
     });
     
     return new Promise((resolve, reject) => {
-      // Adicionar timeout
+      const configuredTimeLimit = Number(config?.time_limit);
+      const safeTimeLimitSeconds = Number.isFinite(configuredTimeLimit) && configuredTimeLimit > 0
+        ? configuredTimeLimit
+        : 60;
+      // Dá folga para startup do processo + serialização da resposta JSON.
+      const timeoutMs = Math.max((safeTimeLimitSeconds + 30) * 1000, 120000);
+
       const timeout = setTimeout(() => {
         pythonProcess.kill();
-        reject(new Error('Timeout: Python process demorou muito para responder'));
-      }, 30000); // 30 segundos
+        reject(new Error(`Timeout: Python process demorou muito para responder (${Math.round(timeoutMs / 1000)}s)`));
+      }, timeoutMs);
       let result = '';
       let error = '';
       
@@ -201,8 +207,13 @@ ipcMain.handle('optimize-cutting', async (event, config) => {
             reject(new Error('Erro ao processar resultado do Python'));
           }
         } else {
-          console.error('Erro no Python:', error);
-          reject(new Error(`Erro no Python: ${error}`));
+          // Em alguns cenarios o backend escreve o erro no stdout e nao no stderr.
+          const stdOutText = (result || '').trim();
+          const stdErrText = (error || '').trim();
+          const combinedOutput = [stdErrText, stdOutText].filter(Boolean).join('\n').trim();
+
+          console.error(`Erro no Python (exit code ${code}):`, combinedOutput || '(sem detalhes)');
+          reject(new Error(`Erro no Python (codigo ${code}): ${combinedOutput || 'sem detalhes'}`));
         }
       });
     });

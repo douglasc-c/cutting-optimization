@@ -10,6 +10,7 @@ interface CuttingConfig {
   stock_height: number;
   pieces: Array<[number, number, number, boolean, string]>; // [width, height, quantity, allow_rotation, description]
   time_limit: number;
+  optimization_mode: 'fast' | 'refined';
 }
 
 interface PiecePlaced {
@@ -44,6 +45,13 @@ interface OptimizationResult {
     used_area: number;
   };
   efficiency_metrics: EfficiencyMetrics;
+  layout_metrics?: {
+    used_width: number;
+    used_height: number;
+    suggested_stock_height: number;
+    length_utilization_percentage: number;
+    bbox_area_efficiency: number;
+  };
   error?: string;
 }
 
@@ -52,7 +60,8 @@ function App() {
     stock_width: 1000,
     stock_height: 800,
     pieces: [[200, 300, 2, true, "Prancha Grande"], [150, 200, 3, true, "Prancha Média"]], // [width, height, quantity, allow_rotation, description]
-    time_limit: 60
+    time_limit: 60,
+    optimization_mode: 'refined'
   });
 
   const [result, setResult] = useState<OptimizationResult | null>(null);
@@ -259,20 +268,22 @@ function App() {
           <div className="options-config">
             <h3>Opções</h3>
             <label>
+              Modo de otimização:
+              <select
+                value={config.optimization_mode}
+                onChange={(e) => setConfig(prev => ({ ...prev, optimization_mode: e.target.value as 'fast' | 'refined' }))}
+              >
+                <option value="fast">Rápido</option>
+                <option value="refined">Refinado</option>
+              </select>
+            </label>
+            <label>
               <input
                 type="checkbox"
                 checked={true}
                 disabled
               />
               Rotação por peça (ver configuração individual)
-            </label>
-            <label>
-              Limite de tempo (segundos):
-              <input
-                type="number"
-                value={config.time_limit}
-                onChange={(e) => setConfig(prev => ({ ...prev, time_limit: parseInt(e.target.value) || 60 }))}
-              />
             </label>
           </div>
 
@@ -318,6 +329,21 @@ function App() {
               <div className="result-item">
                 <strong>Eficiência de área:</strong> {result.efficiency_metrics?.area_efficiency?.toFixed(1)}%
               </div>
+              {result.layout_metrics && (
+                <div className="result-item">
+                  <strong>Comprimento usado:</strong> {result.layout_metrics.used_height.toLocaleString()} mm
+                </div>
+              )}
+              {result.layout_metrics && (
+                <div className="result-item">
+                  <strong>Altura sugerida do material:</strong> {result.layout_metrics.suggested_stock_height.toLocaleString()} mm
+                </div>
+              )}
+              {result.layout_metrics && (
+                <div className="result-item">
+                  <strong>Aproveitamento no comprimento:</strong> {result.layout_metrics.length_utilization_percentage.toFixed(1)}%
+                </div>
+              )}
             </div>
 
             <div className="result-actions">

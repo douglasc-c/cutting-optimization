@@ -208,9 +208,10 @@ const CuttingVisualizer: React.FC<CuttingVisualizerProps> = ({
           {/* Peças colocadas */}
           {piecesPlaced.map((piece, index) => {
             const colorIndex = index % colors.length;
+            const pieceKey = `${piece.id}-${piece.x}-${piece.y}-${index}`;
             
             return (
-              <g key={piece.id}>
+              <g key={pieceKey}>
                 <rect
                   x={piece.x * scale}
                   y={piece.y * scale}

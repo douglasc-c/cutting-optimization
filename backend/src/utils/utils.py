@@ -19,6 +19,7 @@ class CuttingConfig:
     allow_rotation: bool = True
     guillotine_cut: bool = True
     time_limit: int = 300
+    optimization_mode: str = 'refined'
     name: str = ""
 
 
@@ -59,6 +60,7 @@ def load_config_from_json(file_path: str) -> CuttingConfig:
         allow_rotation=data.get('allow_rotation', True),
         guillotine_cut=data.get('guillotine_cut', True),
         time_limit=data.get('time_limit', 300),
+        optimization_mode=data.get('optimization_mode', 'refined'),
         name=data.get('name', '')
     )
 

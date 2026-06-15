@@ -143,6 +143,7 @@ Exemplos de uso:
                 'pieces': pieces,
                 'allow_rotation': not args.no_rotation,
                 'time_limit': args.time_limit,
+                'optimization_mode': 'refined',
                 'name': 'Configuração via linha de comando'
             }
         else:
@@ -154,12 +155,21 @@ Exemplos de uso:
             print(f"\n🔧 EXECUTANDO OTIMIZAÇÃO...")
             print(f"Limite de tempo: {config['time_limit']} segundos")
         
+        selected_algorithm = config.get('algorithm', 'fast')
+        selected_time_limit = int(config.get('time_limit', args.time_limit))
+        selected_optimization_mode = config.get('optimization_mode', 'refined')
+        # No fluxo do Electron (--json-output), priorizamos resposta estável e rápida.
+        if args.json_output:
+            selected_algorithm = 'fast'
+            selected_time_limit = max(1, min(selected_time_limit, 20))
+
         result = api.optimize_cutting(
             stock_width=config['stock_width'],
             stock_height=config['stock_height'],
             pieces=config['pieces'],
-            algorithm='enhanced',
-            time_limit=config['time_limit']
+            algorithm=selected_algorithm,
+            time_limit=selected_time_limit,
+            optimization_mode=selected_optimization_mode
         )
         
         if not result['success']:
