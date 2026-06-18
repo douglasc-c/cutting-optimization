@@ -16,6 +16,7 @@ interface CuttingConfig {
 
 interface PiecePlaced {
   id: string;
+  description?: string;
   x: number;
   y: number;
   width: number;
@@ -406,7 +407,7 @@ function App() {
                   <div className="pieces-grid">
                     {result.result.pieces_placed.map((piece, index) => (
                       <div key={index} className="piece-item">
-                        <strong>{piece.id}</strong>
+                        <strong>{piece.description || piece.id}</strong>
                         <div>Posição: ({mmToCm(piece.x).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}, {mmToCm(piece.y).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}) cm</div>
                         <div>Tamanho: {mmToCm(piece.width).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} x {mmToCm(piece.height).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} cm</div>
                         <div>Área: {mm2ToCm2(piece.area).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} cm²</div>

@@ -177,13 +177,24 @@ class CuttingOptimizationAPI:
             }
 
             for placed_piece in result.pieces_placed:
-                if placed_piece.get('description'):
+                current_description = str(placed_piece.get('description', '')).strip()
+                if current_description and not current_description.startswith('piece_'):
                     continue
 
                 piece_id = str(placed_piece.get('id', ''))
                 is_rotated = piece_id.endswith('_rot')
-                base_id = piece_id[:-4] if is_rotated else piece_id
-                base_description = description_by_base_id.get(base_id, piece_id)
+                raw_base_id = piece_id[:-4] if is_rotated else piece_id
+
+                # Aceita formatos como piece_0, piece_0_rot, piece_0_1, piece_0_1_rot.
+                normalized_base_id = raw_base_id
+                parts = raw_base_id.split('_')
+                if len(parts) >= 2 and parts[0] == 'piece' and parts[1].isdigit():
+                    normalized_base_id = f"piece_{parts[1]}"
+
+                base_description = description_by_base_id.get(
+                    normalized_base_id,
+                    description_by_base_id.get(raw_base_id, piece_id)
+                )
 
                 placed_piece['description'] = (
                     f"{base_description} (Rotacionada)" if is_rotated else base_description
