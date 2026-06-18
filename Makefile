@@ -40,7 +40,7 @@ test-frontend: ## Executa testes do frontend
 
 start: ## Inicia o aplicativo completo
 	@echo "🚀 Iniciando aplicativo..."
-	@./scripts/start.sh
+	@npm run start:electron
 
 start-backend: ## Inicia o backend em modo interativo
 	@echo "🚀 Iniciando backend..."

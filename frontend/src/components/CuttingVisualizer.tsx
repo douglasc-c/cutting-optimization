@@ -26,14 +26,33 @@ const CuttingVisualizer: React.FC<CuttingVisualizerProps> = ({
   showGrid = true,
   showDimensions = true
 }) => {
-  // Escala para caber na tela (máximo 600px)
+  // Escala de preview para caber na tela sem alterar a escala do SVG exportado.
   const maxSize = 600;
-  const scaleX = maxSize / stockWidth;
-  const scaleY = maxSize / stockHeight;
+  const safeStockWidth = Math.max(1, stockWidth);
+  const safeStockHeight = Math.max(1, stockHeight);
+  const scaleX = maxSize / safeStockWidth;
+  const scaleY = maxSize / safeStockHeight;
   const scale = Math.min(scaleX, scaleY);
   
   const scaledWidth = stockWidth * scale;
   const scaledHeight = stockHeight * scale;
+  const mmToCm = (valueMm: number): number => valueMm / 10;
+  const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value));
+
+  const getTextMetrics = (pieceWidth: number, pieceHeight: number, localScale: number) => {
+    const minSide = Math.max(1, Math.min(pieceWidth, pieceHeight) * localScale);
+    const dimensionFontSize = clamp(minSide * 0.2, 2, 16);
+    const nameFontSize = clamp(dimensionFontSize * 0.85, 1.8, 13);
+    const topOffset = clamp(dimensionFontSize * 0.45, 1.2, 8);
+    const bottomOffset = clamp(nameFontSize * 0.9, 1.5, 9);
+
+    return {
+      dimensionFontSize,
+      nameFontSize,
+      topOffset,
+      bottomOffset
+    };
+  };
 
   // Cores para as peças
   const colors = [
@@ -57,43 +76,46 @@ const CuttingVisualizer: React.FC<CuttingVisualizerProps> = ({
 
   // Função para gerar SVG apenas com as peças
   const generatePiecesOnlySVG = () => {
+    const exportScale = 1;
     const piecesElements = piecesPlaced.map((piece, index) => {
       const colorIndex = index % colors.length;
+      const pieceLabel = (piece.description || piece.id || '').trim();
+      const textMetrics = getTextMetrics(piece.width, piece.height, exportScale);
       
       let pieceContent = `
         <rect
-          x="${piece.x * scale}"
-          y="${piece.y * scale}"
-          width="${piece.width * scale}"
-          height="${piece.height * scale}"
+          x="${piece.x * exportScale}"
+          y="${piece.y * exportScale}"
+          width="${piece.width * exportScale}"
+          height="${piece.height * exportScale}"
           fill="${colors[colorIndex]}"
           stroke="#333"
-          stroke-width="1"
+          stroke-width="0.5"
           opacity="0.8"
         />`;
       
       if (showDimensions) {
         pieceContent += `
         <text
-          x="${piece.x * scale + (piece.width * scale) / 2}"
-          y="${piece.y * scale + (piece.height * scale) / 2 - 5}"
+          x="${piece.x * exportScale + (piece.width * exportScale) / 2}"
+          y="${piece.y * exportScale + (piece.height * exportScale) / 2 - textMetrics.topOffset}"
           text-anchor="middle"
-          font-size="10"
+          font-size="${textMetrics.dimensionFontSize}"
           fill="#333"
           font-weight="bold"
           style="text-shadow: 1px 1px 2px rgba(255, 255, 255, 0.8); font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;"
         >
-          ${piece.width}×${piece.height}
+          ${mmToCm(piece.width).toFixed(1)}×${mmToCm(piece.height).toFixed(1)} cm
         </text>
         <text
-          x="${piece.x * scale + (piece.width * scale) / 2}"
-          y="${piece.y * scale + (piece.height * scale) / 2 + 10}"
+          x="${piece.x * exportScale + (piece.width * exportScale) / 2}"
+          y="${piece.y * exportScale + (piece.height * exportScale) / 2 + textMetrics.bottomOffset}"
           text-anchor="middle"
-          font-size="9"
+          font-size="${textMetrics.nameFontSize}"
           fill="#333"
           style="text-shadow: 1px 1px 2px rgba(255, 255, 255, 0.8); font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;"
         >
-          ${piece.description || piece.id}
+          ${pieceLabel}
         </text>`;
       }
       
@@ -102,9 +124,9 @@ const CuttingVisualizer: React.FC<CuttingVisualizerProps> = ({
 
     return `<?xml version="1.0" encoding="UTF-8"?>
 <svg
-  width="${scaledWidth}"
-  height="${scaledHeight}"
-  viewBox="0 0 ${scaledWidth} ${scaledHeight}"
+  width="${stockWidth}mm"
+  height="${stockHeight}mm"
+  viewBox="0 0 ${stockWidth} ${stockHeight}"
   xmlns="http://www.w3.org/2000/svg"
 >
   <!-- Peças colocadas -->
@@ -113,25 +135,25 @@ const CuttingVisualizer: React.FC<CuttingVisualizerProps> = ({
   <!-- Dimensões do material -->
   ${showDimensions ? `
   <text
-    x="${scaledWidth / 2}"
-    y="-10"
+    x="${stockWidth / 2}"
+    y="-2"
     text-anchor="middle"
-    font-size="12"
+    font-size="3"
     fill="#666"
     font-weight="bold"
   >
-    ${stockWidth} mm
+    ${mmToCm(stockWidth).toFixed(1)} cm
   </text>
   <text
-    x="-10"
-    y="${scaledHeight / 2}"
+    x="-2"
+    y="${stockHeight / 2}"
     text-anchor="middle"
-    font-size="12"
+    font-size="3"
     fill="#666"
     font-weight="bold"
-    transform="rotate(-90, -10, ${scaledHeight / 2})"
+    transform="rotate(-90, -2, ${stockHeight / 2})"
   >
-    ${stockHeight} mm
+    ${mmToCm(stockHeight).toFixed(1)} cm
   </text>` : ''}
 </svg>`;
   };
@@ -141,13 +163,14 @@ const CuttingVisualizer: React.FC<CuttingVisualizerProps> = ({
       <div className="visualizer-header">
         <h3>📐 Visualização do Corte</h3>
         <div className="visualizer-info">
-          <span>Material: {stockWidth} × {stockHeight} mm</span>
+          <span>Material: {mmToCm(stockWidth).toFixed(1)} × {mmToCm(stockHeight).toFixed(1)} cm</span>
           <span>Peças: {piecesPlaced.length}</span>
-          <span>Escala: 1:{Math.round(1/scale)}</span>
+          <span>Escala (preview): 1:{Math.max(1, Math.round(1 / scale))}</span>
+          <span>Escala (SVG): 1:1</span>
           <button 
             onClick={exportPiecesOnly} 
             className="export-btn"
-            title="Exportar apenas as peças em SVG (sem grade)"
+            title="Exportar SVG em escala real 1:1"
           >
             📤 Exportar SVG
           </button>
@@ -209,6 +232,8 @@ const CuttingVisualizer: React.FC<CuttingVisualizerProps> = ({
           {piecesPlaced.map((piece, index) => {
             const colorIndex = index % colors.length;
             const pieceKey = `${piece.id}-${piece.x}-${piece.y}-${index}`;
+            const pieceLabel = (piece.description || piece.id || '').trim();
+            const textMetrics = getTextMetrics(piece.width, piece.height, scale);
             
             return (
               <g key={pieceKey}>
@@ -229,24 +254,24 @@ const CuttingVisualizer: React.FC<CuttingVisualizerProps> = ({
                     {/* Dimensões no centro da peça */}
                     <text
                       x={piece.x * scale + (piece.width * scale) / 2}
-                      y={piece.y * scale + (piece.height * scale) / 2 - 5}
+                      y={piece.y * scale + (piece.height * scale) / 2 - textMetrics.topOffset}
                       textAnchor="middle"
-                      fontSize="10"
+                      fontSize={textMetrics.dimensionFontSize}
                       fill="#333"
                       fontWeight="bold"
                     >
-                      {piece.width}×{piece.height}
+                      {mmToCm(piece.width).toFixed(1)}×{mmToCm(piece.height).toFixed(1)} cm
                     </text>
                     
                     {/* Descrição abaixo das dimensões */}
                     <text
                       x={piece.x * scale + (piece.width * scale) / 2}
-                      y={piece.y * scale + (piece.height * scale) / 2 + 10}
+                      y={piece.y * scale + (piece.height * scale) / 2 + textMetrics.bottomOffset}
                       textAnchor="middle"
-                      fontSize="9"
+                      fontSize={textMetrics.nameFontSize}
                       fill="#333"
                     >
-                      {piece.description || piece.id}
+                      {pieceLabel}
                     </text>
                   </>
                 )}
@@ -265,7 +290,7 @@ const CuttingVisualizer: React.FC<CuttingVisualizerProps> = ({
                 fill="#666"
                 fontWeight="bold"
               >
-                {stockWidth} mm
+                {mmToCm(stockWidth).toFixed(1)} cm
               </text>
               <text
                 x={-10}
@@ -276,7 +301,7 @@ const CuttingVisualizer: React.FC<CuttingVisualizerProps> = ({
                 fontWeight="bold"
                 transform={`rotate(-90, -10, ${scaledHeight / 2})`}
               >
-                {stockHeight} mm
+                {mmToCm(stockHeight).toFixed(1)} cm
               </text>
             </>
           )}
@@ -293,7 +318,7 @@ const CuttingVisualizer: React.FC<CuttingVisualizerProps> = ({
           </div>
           <div className="legend-item">
             <div className="legend-color" style={{ backgroundColor: '#e0e0e0', border: '1px dashed #ccc' }}></div>
-            <span>Grade (50mm)</span>
+            <span>Grade (5cm)</span>
           </div>
         </div>
       </div>

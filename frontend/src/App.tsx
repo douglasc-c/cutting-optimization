@@ -4,6 +4,7 @@ import CuttingVisualizer from './components/CuttingVisualizer';
 
 // Verificação de segurança para a API do Electron
 const isElectron = window.electronAPI !== undefined;
+const MM_PER_CM = 10;
 
 interface CuttingConfig {
   stock_width: number;
@@ -49,17 +50,22 @@ interface OptimizationResult {
     used_width: number;
     used_height: number;
     suggested_stock_height: number;
+    effective_stock_height?: number;
     length_utilization_percentage: number;
     bbox_area_efficiency: number;
   };
   error?: string;
 }
 
+const cmToMm = (valueCm: number): number => Math.max(0, Math.round((Number(valueCm) || 0) * MM_PER_CM));
+const mmToCm = (valueMm: number): number => (Number(valueMm) || 0) / MM_PER_CM;
+const mm2ToCm2 = (valueMm2: number): number => (Number(valueMm2) || 0) / (MM_PER_CM * MM_PER_CM);
+
 function App() {
   const [config, setConfig] = useState<CuttingConfig>({
-    stock_width: 1000,
-    stock_height: 800,
-    pieces: [[200, 300, 2, true, "Prancha Grande"], [150, 200, 3, true, "Prancha Média"]], // [width, height, quantity, allow_rotation, description]
+    stock_width: 100,
+    stock_height: 0,
+    pieces: [[20, 30, 2, true, "Prancha Grande"], [15, 20, 3, true, "Prancha Média"]], // [width, height, quantity, allow_rotation, description]
     time_limit: 60,
     optimization_mode: 'refined'
   });
@@ -86,8 +92,21 @@ function App() {
       if (!isElectron) {
         throw new Error('Esta aplicação deve ser executada no Electron');
       }
-      
-      const optimizationResult = await window.electronAPI.optimizeCutting(config);
+
+      const payloadConfig: CuttingConfig = {
+        ...config,
+        stock_width: cmToMm(config.stock_width),
+        stock_height: config.stock_height > 0 ? cmToMm(config.stock_height) : 0,
+        pieces: config.pieces.map(([w, h, q, rot, desc]) => [
+          cmToMm(w),
+          cmToMm(h),
+          Math.max(0, Math.floor(q || 0)),
+          rot,
+          desc
+        ])
+      };
+
+      const optimizationResult = await window.electronAPI.optimizeCutting(payloadConfig);
       setResult(optimizationResult);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro desconhecido');
@@ -102,8 +121,21 @@ function App() {
         alert('Esta aplicação deve ser executada no Electron');
         return;
       }
-      
-      const saveResult = await window.electronAPI.saveConfig(config);
+
+      const configToSaveMm: CuttingConfig = {
+        ...config,
+        stock_width: cmToMm(config.stock_width),
+        stock_height: config.stock_height > 0 ? cmToMm(config.stock_height) : 0,
+        pieces: config.pieces.map(([w, h, q, rot, desc]) => [
+          cmToMm(w),
+          cmToMm(h),
+          Math.max(0, Math.floor(q || 0)),
+          rot,
+          desc
+        ])
+      };
+
+      const saveResult = await window.electronAPI.saveConfig(configToSaveMm);
       if (saveResult.success) {
         alert(`Configuração salva em: ${saveResult.filePath}`);
       } else {
@@ -123,7 +155,19 @@ function App() {
       
       const loadResult = await window.electronAPI.loadConfig();
       if (loadResult.success) {
-        setConfig(loadResult.config);
+        const loaded = loadResult.config as CuttingConfig;
+        setConfig({
+          ...loaded,
+          stock_width: mmToCm(loaded.stock_width),
+          stock_height: loaded.stock_height > 0 ? mmToCm(loaded.stock_height) : 0,
+          pieces: loaded.pieces.map(([w, h, q, rot, desc]) => [
+            mmToCm(w),
+            mmToCm(h),
+            q,
+            rot,
+            desc
+          ])
+        });
         alert(`Configuração carregada de: ${loadResult.filePath}`);
       } else {
         alert(`Erro ao carregar: ${loadResult.error}`);
@@ -200,22 +244,15 @@ function App() {
             <h3>Material Base</h3>
             <div className="input-group">
               <label>
-                Largura (mm):
+                Largura (cm):
                 <input
                   type="number"
                   value={config.stock_width}
-                  onChange={(e) => setConfig(prev => ({ ...prev, stock_width: parseInt(e.target.value) || 0 }))}
-                />
-              </label>
-              <label>
-                Altura (mm):
-                <input
-                  type="number"
-                  value={config.stock_height}
-                  onChange={(e) => setConfig(prev => ({ ...prev, stock_height: parseInt(e.target.value) || 0 }))}
+                  onChange={(e) => setConfig(prev => ({ ...prev, stock_width: parseFloat(e.target.value) || 0 }))}
                 />
               </label>
             </div>
+            <small>A altura do material será definida automaticamente após posicionar as peças.</small>
           </div>
 
           <div className="pieces-config">
@@ -227,16 +264,16 @@ function App() {
                   type="number"
                   placeholder="Largura"
                   value={piece[0]}
-                  onChange={(e) => updatePiece(index, 0, parseInt(e.target.value) || 0)}
+                  onChange={(e) => updatePiece(index, 0, parseFloat(e.target.value) || 0)}
                 />
                 <span>x</span>
                 <input
                   type="number"
                   placeholder="Altura"
                   value={piece[1]}
-                  onChange={(e) => updatePiece(index, 1, parseInt(e.target.value) || 0)}
+                  onChange={(e) => updatePiece(index, 1, parseFloat(e.target.value) || 0)}
                 />
-                <span>mm</span>
+                <span>cm</span>
                 <input
                   type="number"
                   placeholder="Qtd"
@@ -315,7 +352,7 @@ function App() {
                 <strong>Peças cortadas:</strong> {result.result.pieces_placed.length}
               </div>
               <div className="result-item">
-                <strong>Área utilizada:</strong> {result.result.used_area.toLocaleString()} mm²
+                <strong>Área utilizada:</strong> {mm2ToCm2(result.result.used_area).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} cm²
               </div>
               <div className="result-item">
                 <strong>Desperdício:</strong> {result.result.waste_percentage.toFixed(2)}%
@@ -331,12 +368,12 @@ function App() {
               </div>
               {result.layout_metrics && (
                 <div className="result-item">
-                  <strong>Comprimento usado:</strong> {result.layout_metrics.used_height.toLocaleString()} mm
+                  <strong>Comprimento usado:</strong> {mmToCm(result.layout_metrics.used_height).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} cm
                 </div>
               )}
               {result.layout_metrics && (
                 <div className="result-item">
-                  <strong>Altura sugerida do material:</strong> {result.layout_metrics.suggested_stock_height.toLocaleString()} mm
+                  <strong>Altura sugerida do material:</strong> {mmToCm(result.layout_metrics.suggested_stock_height).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} cm
                 </div>
               )}
               {result.layout_metrics && (
@@ -356,8 +393,8 @@ function App() {
               <>
                 {/* Visualização do Corte */}
                 <CuttingVisualizer
-                  stockWidth={config.stock_width}
-                  stockHeight={config.stock_height}
+                  stockWidth={cmToMm(config.stock_width)}
+                  stockHeight={result.layout_metrics?.effective_stock_height || result.layout_metrics?.suggested_stock_height || result.layout_metrics?.used_height || cmToMm(config.stock_height)}
                   piecesPlaced={result.result.pieces_placed}
                   showGrid={true}
                   showDimensions={true}
@@ -370,9 +407,9 @@ function App() {
                     {result.result.pieces_placed.map((piece, index) => (
                       <div key={index} className="piece-item">
                         <strong>{piece.id}</strong>
-                        <div>Posição: ({piece.x}, {piece.y})</div>
-                        <div>Tamanho: {piece.width} x {piece.height} mm</div>
-                        <div>Área: {piece.area} mm²</div>
+                        <div>Posição: ({mmToCm(piece.x).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}, {mmToCm(piece.y).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}) cm</div>
+                        <div>Tamanho: {mmToCm(piece.width).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} x {mmToCm(piece.height).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} cm</div>
+                        <div>Área: {mm2ToCm2(piece.area).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} cm²</div>
                       </div>
                     ))}
                   </div>

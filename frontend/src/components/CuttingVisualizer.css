@@ -68,6 +68,7 @@
   background: #f8f9fa;
   border-radius: 8px;
   border: 1px solid #dee2e6;
+  overflow: auto;
 }
 
 .cutting-svg {

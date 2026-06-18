@@ -45,6 +45,44 @@ class CuttingOptimizationAPI:
     def get_available_algorithms(self) -> List[str]:
         """Retorna lista de algoritmos disponíveis"""
         return list(self.available_algorithms.keys())
+
+    def _resolve_effective_stock_height(
+        self,
+        stock_width: int,
+        stock_height: int,
+        pieces: List[Tuple[int, int, int, bool, str]],
+        algorithm: str
+    ) -> int:
+        """Resolve altura efetiva do material quando a altura inicial não for informada."""
+        if stock_height and stock_height > 0:
+            return int(stock_height)
+
+        if stock_width <= 0:
+            raise ValueError("Largura do material deve ser maior que zero")
+
+        # O modo automático sem altura pré-definida é suportado no algoritmo fast.
+        if algorithm != 'fast':
+            raise ValueError("Altura automática sem valor inicial é suportada apenas com algoritmo 'fast'")
+
+        stack_height = 0
+        for width, height, quantity, allow_rotation, _description in pieces:
+            quantity = max(0, int(quantity))
+            options: List[int] = []
+
+            if width <= stock_width:
+                options.append(int(height))
+            if allow_rotation and height <= stock_width:
+                options.append(int(width))
+
+            if not options and quantity > 0:
+                raise ValueError(
+                    f"Peça {width}x{height} não cabe na largura informada ({stock_width})"
+                )
+
+            min_piece_height = min(options) if options else 0
+            stack_height += min_piece_height * quantity
+
+        return max(1, int(stack_height))
     
     def optimize_cutting(self, 
                         stock_width: int,
@@ -94,8 +132,15 @@ class CuttingOptimizationAPI:
                     str(description)
                 ))
             
+            effective_stock_height = self._resolve_effective_stock_height(
+                stock_width=stock_width,
+                stock_height=stock_height,
+                pieces=normalized_pieces,
+                algorithm=algorithm
+            )
+
             # Validar entrada
-            validation = validate_pieces_fit_stock(stock_width, stock_height, normalized_pieces)
+            validation = validate_pieces_fit_stock(stock_width, effective_stock_height, normalized_pieces)
             
             # Criar otimizador
             optimizer_class = self.available_algorithms[algorithm]
@@ -111,7 +156,7 @@ class CuttingOptimizationAPI:
             allow_rotation = any(piece_allow_rotation for _, _, _, piece_allow_rotation, _ in normalized_pieces)
             optimizer = optimizer_class(
                 stock_width=stock_width,
-                stock_height=stock_height,
+                stock_height=effective_stock_height,
                 pieces=optimizer_pieces,
                 allow_rotation=allow_rotation
             )
@@ -157,7 +202,7 @@ class CuttingOptimizationAPI:
 
             bbox_area = used_width * used_height if used_width > 0 and used_height > 0 else 0
             bbox_area_efficiency = (result.used_area / bbox_area) * 100 if bbox_area > 0 else 0.0
-            length_utilization_percentage = (used_height / stock_height) * 100 if stock_height > 0 else 0.0
+            length_utilization_percentage = (used_height / effective_stock_height) * 100 if effective_stock_height > 0 else 0.0
             
             # Preparar resposta
             response = {
@@ -177,6 +222,7 @@ class CuttingOptimizationAPI:
                     'used_width': used_width,
                     'used_height': used_height,
                     'suggested_stock_height': used_height,
+                    'effective_stock_height': effective_stock_height,
                     'length_utilization_percentage': length_utilization_percentage,
                     'bbox_area_efficiency': bbox_area_efficiency
                 },

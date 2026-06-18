@@ -161,7 +161,7 @@ Exemplos de uso:
         # No fluxo do Electron (--json-output), priorizamos resposta estável e rápida.
         if args.json_output:
             selected_algorithm = 'fast'
-            selected_time_limit = max(1, min(selected_time_limit, 20))
+            selected_time_limit = max(1, selected_time_limit)
 
         result = api.optimize_cutting(
             stock_width=config['stock_width'],
