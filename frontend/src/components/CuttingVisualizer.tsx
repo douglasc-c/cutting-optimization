@@ -1,5 +1,5 @@
 import React from 'react';
-import './CuttingVisualizer.css';
+import './CuttingVisualizer.css'; 
 
 interface Piece {
   id: string;
@@ -41,17 +41,21 @@ const CuttingVisualizer: React.FC<CuttingVisualizerProps> = ({
 
   const getTextMetrics = (pieceWidth: number, pieceHeight: number, localScale: number) => {
     const minSide = Math.max(1, Math.min(pieceWidth, pieceHeight) * localScale);
-    const dimensionFontSize = clamp(minSide * 0.2, 2, 16);
-    const nameFontSize = clamp(dimensionFontSize * 0.85, 1.8, 13);
-    const topOffset = clamp(dimensionFontSize * 0.45, 1.2, 8);
-    const bottomOffset = clamp(nameFontSize * 0.9, 1.5, 9);
+    const dimensionFontSize = clamp(minSide * 0.18, 2, 14);
+    const nameFontSize = clamp(dimensionFontSize * 0.85, 1.8, 12);
+    const padding = clamp(minSide * 0.06, 1, 6);
+    const lineGap = clamp(dimensionFontSize * 1.2, 2, 16);
 
     return {
       dimensionFontSize,
       nameFontSize,
-      topOffset,
-      bottomOffset
+      padding,
+      lineGap
     };
+  };
+
+  const isRotated = (piece: Piece): boolean => {
+    return piece.id.endsWith('_rot');
   };
 
   // Cores para as peças
@@ -77,10 +81,21 @@ const CuttingVisualizer: React.FC<CuttingVisualizerProps> = ({
   // Função para gerar SVG apenas com as peças
   const generatePiecesOnlySVG = () => {
     const exportScale = 1;
+    // No SVG exportado (escala 1:1 em mm), o fontSize em px seria minúsculo.
+    // Calculamos diretamente em mm: ~5% do menor lado, com limites físicos legíveis.
+    const getExportTextMetrics = (pw: number, ph: number) => {
+      const minSide = Math.max(1, Math.min(pw, ph));
+      const dimensionFontSize = clamp(minSide * 0.055, 3, 18);
+      const nameFontSize = clamp(dimensionFontSize * 0.85, 2.5, 15);
+      const padding = clamp(minSide * 0.04, 1.5, 8);
+      const lineGap = clamp(dimensionFontSize * 1.3, 3, 22);
+      return { dimensionFontSize, nameFontSize, padding, lineGap };
+    };
+
     const piecesElements = piecesPlaced.map((piece, index) => {
       const colorIndex = index % colors.length;
       const pieceLabel = (piece.description || piece.id || '').trim();
-      const textMetrics = getTextMetrics(piece.width, piece.height, exportScale);
+      const textMetrics = getExportTextMetrics(piece.width, piece.height);
       
       let pieceContent = `
         <rect
@@ -95,28 +110,42 @@ const CuttingVisualizer: React.FC<CuttingVisualizerProps> = ({
         />`;
       
       if (showDimensions) {
+        const rotated = piece.id.endsWith('_rot');
+        const px = piece.x * exportScale;
+        const py = piece.y * exportScale;
+        const pw = piece.width * exportScale;
+        const ph = piece.height * exportScale;
+        const textX = px + textMetrics.padding;
+        const dimY = py + textMetrics.padding + textMetrics.dimensionFontSize;
+        const nameY = dimY + textMetrics.lineGap;
+        const rotTransform = rotated
+          ? `transform="rotate(90, ${px + pw / 2}, ${py + ph / 2}) translate(${(ph - pw) / 2}, ${(pw - ph) / 2})"`
+          : '';
+
         pieceContent += `
-        <text
-          x="${piece.x * exportScale + (piece.width * exportScale) / 2}"
-          y="${piece.y * exportScale + (piece.height * exportScale) / 2 - textMetrics.topOffset}"
-          text-anchor="middle"
-          font-size="${textMetrics.dimensionFontSize}"
-          fill="#333"
-          font-weight="bold"
-          style="text-shadow: 1px 1px 2px rgba(255, 255, 255, 0.8); font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;"
-        >
-          ${mmToCm(piece.width).toFixed(1)}×${mmToCm(piece.height).toFixed(1)} cm
-        </text>
-        <text
-          x="${piece.x * exportScale + (piece.width * exportScale) / 2}"
-          y="${piece.y * exportScale + (piece.height * exportScale) / 2 + textMetrics.bottomOffset}"
-          text-anchor="middle"
-          font-size="${textMetrics.nameFontSize}"
-          fill="#333"
-          style="text-shadow: 1px 1px 2px rgba(255, 255, 255, 0.8); font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;"
-        >
-          ${pieceLabel}
-        </text>`;
+        <g ${rotTransform}>
+          <text
+            x="${textX}"
+            y="${dimY}"
+            text-anchor="start"
+            font-size="${textMetrics.dimensionFontSize}"
+            fill="#333"
+            font-weight="bold"
+            font-family="'Segoe UI', Tahoma, Geneva, Verdana, sans-serif"
+          >
+            ${mmToCm(piece.width).toFixed(1)}×${mmToCm(piece.height).toFixed(1)} cm
+          </text>
+          <text
+            x="${textX}"
+            y="${nameY}"
+            text-anchor="start"
+            font-size="${textMetrics.nameFontSize}"
+            fill="#333"
+            font-family="'Segoe UI', Tahoma, Geneva, Verdana, sans-serif"
+          >
+            ${pieceLabel}
+          </text>
+        </g>`;
       }
       
       return `<g>${pieceContent}</g>`;
@@ -234,46 +263,54 @@ const CuttingVisualizer: React.FC<CuttingVisualizerProps> = ({
             const pieceKey = `${piece.id}-${piece.x}-${piece.y}-${index}`;
             const pieceLabel = (piece.description || piece.id || '').trim();
             const textMetrics = getTextMetrics(piece.width, piece.height, scale);
-            
+            const rotated = isRotated(piece);
+            const px = piece.x * scale;
+            const py = piece.y * scale;
+            const pw = piece.width * scale;
+            const ph = piece.height * scale;
+            const textX = px + textMetrics.padding;
+            const dimY = py + textMetrics.padding + textMetrics.dimensionFontSize;
+            const nameY = dimY + textMetrics.lineGap;
+            const rotateTransform = rotated
+              ? `rotate(90, ${px + pw / 2}, ${py + ph / 2}) translate(${(ph - pw) / 2}, ${(pw - ph) / 2})`
+              : undefined;
+
             return (
               <g key={pieceKey}>
                 <rect
-                  x={piece.x * scale}
-                  y={piece.y * scale}
-                  width={piece.width * scale}
-                  height={piece.height * scale}
+                  x={px}
+                  y={py}
+                  width={pw}
+                  height={ph}
                   fill={colors[colorIndex]}
                   stroke="#333"
                   strokeWidth="1"
                   opacity="0.8"
                 />
-                
-                {/* Dimensões e descrição dentro da peça */}
+
+                {/* Dimensão e nome no canto superior esquerdo, rotacionado se necessário */}
                 {showDimensions && (
-                  <>
-                    {/* Dimensões no centro da peça */}
+                  <g transform={rotateTransform}>
                     <text
-                      x={piece.x * scale + (piece.width * scale) / 2}
-                      y={piece.y * scale + (piece.height * scale) / 2 - textMetrics.topOffset}
-                      textAnchor="middle"
+                      x={textX}
+                      y={dimY}
+                      textAnchor="start"
                       fontSize={textMetrics.dimensionFontSize}
                       fill="#333"
                       fontWeight="bold"
                     >
                       {mmToCm(piece.width).toFixed(1)}×{mmToCm(piece.height).toFixed(1)} cm
                     </text>
-                    
-                    {/* Descrição abaixo das dimensões */}
                     <text
-                      x={piece.x * scale + (piece.width * scale) / 2}
-                      y={piece.y * scale + (piece.height * scale) / 2 + textMetrics.bottomOffset}
-                      textAnchor="middle"
+                      x={textX}
+                      y={nameY}
+                      textAnchor="start"
                       fontSize={textMetrics.nameFontSize}
                       fill="#333"
                     >
                       {pieceLabel}
                     </text>
-                  </>
+                  </g>
                 )}
               </g>
             );
