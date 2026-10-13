@@ -7,6 +7,7 @@ import csv
 from typing import List, Dict, Tuple, Optional
 import numpy as np
 from dataclasses import dataclass, asdict
+from types import SimpleNamespace
 from ..core import CuttingResult, Piece
 
 
@@ -87,16 +88,19 @@ def save_results_to_csv(result: CuttingResult, file_path: str) -> None:
         result: Resultado da otimização
         file_path: Caminho do arquivo CSV
     """
+    if isinstance(result, dict):
+        result = SimpleNamespace(**result)
     with open(file_path, 'w', newline='', encoding='utf-8') as f:
         writer = csv.writer(f)
         
         # Cabeçalho
-        writer.writerow(['ID', 'X', 'Y', 'Largura', 'Altura', 'Área'])
+        writer.writerow(['ID', 'Descrição', 'X (mm)', 'Y (mm)', 'Largura (mm)', 'Altura (mm)', 'Área (mm²)'])
         
         # Dados das peças
         for piece in result.pieces_placed:
             writer.writerow([
                 piece['id'],
+                piece.get('description', piece['id']),
                 piece['x'],
                 piece['y'],
                 piece['width'],
@@ -128,7 +132,7 @@ def calculate_efficiency_metrics(result: CuttingResult) -> Dict:
     area_efficiency = (result.used_area / result.total_area) * 100
     
     # Densidade de peças (peças por unidade de área)
-    piece_density = len(result.pieces_placed) / (result.total_area / 10000)  # peças/m²
+    piece_density = len(result.pieces_placed) / (result.total_area / 1000000)  # peças/m²
     
     # Média de área por peça
     avg_piece_area = result.used_area / len(result.pieces_placed) if result.pieces_placed else 0
@@ -165,8 +169,10 @@ def validate_pieces_fit_stock(stock_width: int, stock_height: int,
     
     # Verificar se alguma peça é maior que o material base
     oversized_pieces = []
-    for i, (width, height, quantity, _, _) in enumerate(pieces):
-        if width > stock_width or height > stock_height:
+    for i, (width, height, quantity, allow_rotation, _) in enumerate(pieces):
+        normal_fits = width <= stock_width and height <= stock_height
+        rotated_fits = allow_rotation and height <= stock_width and width <= stock_height
+        if not normal_fits and not rotated_fits:
             oversized_pieces.append({
                 'index': i,
                 'dimensions': (width, height),
@@ -278,6 +284,8 @@ def export_cutting_instructions(result: CuttingResult, output_path: str) -> None
         result: Resultado da otimização
         output_path: Caminho do arquivo de saída
     """
+    if isinstance(result, dict):
+        result = SimpleNamespace(**result)
     with open(output_path, 'w', encoding='utf-8') as f:
         f.write("INSTRUÇÕES DE CORTE\n")
         f.write("=" * 50 + "\n\n")

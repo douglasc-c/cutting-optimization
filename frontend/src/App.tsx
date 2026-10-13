@@ -3,7 +3,6 @@ import './App.css';
 import CuttingVisualizer from './components/CuttingVisualizer';
 
 // Verificação de segurança para a API do Electron
-const isElectron = window.electronAPI !== undefined;
 const MM_PER_CM = 10;
 
 interface CuttingConfig {
@@ -17,6 +16,7 @@ interface CuttingConfig {
 interface PiecePlaced {
   id: string;
   description?: string;
+  rotated?: boolean;
   x: number;
   y: number;
   width: number;
@@ -39,7 +39,8 @@ interface OptimizationResult {
   algorithm: string;
   result: {
     pieces_placed: PiecePlaced[];
-    stock_used: StockUsed;
+    stock_used: number;
+    stock_dimensions: StockUsed;
     waste_percentage: number;
     execution_time: number;
     is_optimal: boolean;
@@ -54,6 +55,9 @@ interface OptimizationResult {
     effective_stock_height?: number;
     length_utilization_percentage: number;
     bbox_area_efficiency: number;
+    consumed_area_efficiency?: number;
+    consumed_waste_percentage?: number;
+    lower_bound_height?: number;
   };
   error?: string;
 }
@@ -90,10 +94,13 @@ function App() {
     setResult(null);
 
     try {
-      if (!isElectron) {
+      if (!window.electronAPI) {
         throw new Error('Esta aplicação deve ser executada no Electron');
       }
 
+      if (!Number.isFinite(config.stock_width) || config.stock_width <= 0 || config.stock_height < 0 || !config.pieces.length || config.pieces.some(([w,h,q]) => !Number.isFinite(w) || !Number.isFinite(h) || !Number.isInteger(q) || cmToMm(w) <= 0 || cmToMm(h) <= 0 || q <= 0)) {
+        throw new Error('Informe largura e dimensões positivas, com quantidades inteiras maiores que zero.');
+      }
       const payloadConfig: CuttingConfig = {
         ...config,
         stock_width: cmToMm(config.stock_width),
@@ -108,6 +115,12 @@ function App() {
       };
 
       const optimizationResult = await window.electronAPI.optimizeCutting(payloadConfig);
+      if (!optimizationResult.success || !optimizationResult.result) {
+        throw new Error(optimizationResult.error || 'Não foi possível calcular o corte.');
+      }
+      if (!optimizationResult.result.pieces_placed.length) {
+        throw new Error('Não foi encontrado um encaixe para as peças.');
+      }
       setResult(optimizationResult);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro desconhecido');
@@ -118,7 +131,7 @@ function App() {
 
   const handleSaveConfig = async () => {
     try {
-      if (!isElectron) {
+      if (!window.electronAPI) {
         alert('Esta aplicação deve ser executada no Electron');
         return;
       }
@@ -149,7 +162,7 @@ function App() {
 
   const handleLoadConfig = async () => {
     try {
-      if (!isElectron) {
+      if (!window.electronAPI) {
         alert('Esta aplicação deve ser executada no Electron');
         return;
       }
@@ -159,14 +172,16 @@ function App() {
         const loaded = loadResult.config as CuttingConfig;
         setConfig({
           ...loaded,
+          optimization_mode: loaded.optimization_mode || 'refined',
+          time_limit: loaded.time_limit || 60,
           stock_width: mmToCm(loaded.stock_width),
           stock_height: loaded.stock_height > 0 ? mmToCm(loaded.stock_height) : 0,
           pieces: loaded.pieces.map(([w, h, q, rot, desc]) => [
             mmToCm(w),
             mmToCm(h),
             q,
-            rot,
-            desc
+            rot ?? true,
+            desc || 'Peça sem descrição'
           ])
         });
         alert(`Configuração carregada de: ${loadResult.filePath}`);
@@ -185,7 +200,7 @@ function App() {
     }
 
     try {
-      if (!isElectron) {
+      if (!window.electronAPI) {
         alert('Esta aplicação deve ser executada no Electron');
         return;
       }
@@ -362,7 +377,7 @@ function App() {
                 <strong>Tempo de execução:</strong> {result.result.execution_time.toFixed(2)}s
               </div>
               <div className="result-item">
-                <strong>Solução ótima:</strong> {result.result.is_optimal ? 'Sim' : 'Não'}
+                <strong>Comprimento mínimo comprovado:</strong> {result.result.is_optimal ? 'Sim' : 'Não comprovado'}
               </div>
               <div className="result-item">
                 <strong>Eficiência de área:</strong> {result.efficiency_metrics?.area_efficiency?.toFixed(1)}%
@@ -377,9 +392,9 @@ function App() {
                   <strong>Altura sugerida do material:</strong> {mmToCm(result.layout_metrics.suggested_stock_height).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} cm
                 </div>
               )}
-              {result.layout_metrics && (
+              {result.layout_metrics?.consumed_area_efficiency !== undefined && (
                 <div className="result-item">
-                  <strong>Aproveitamento no comprimento:</strong> {result.layout_metrics.length_utilization_percentage.toFixed(1)}%
+                  <strong>Aproveitamento do material consumido:</strong> {result.layout_metrics.consumed_area_efficiency.toFixed(1)}%
                 </div>
               )}
             </div>
@@ -394,8 +409,8 @@ function App() {
               <>
                 {/* Visualização do Corte */}
                 <CuttingVisualizer
-                  stockWidth={cmToMm(config.stock_width)}
-                  stockHeight={result.layout_metrics?.effective_stock_height || result.layout_metrics?.suggested_stock_height || result.layout_metrics?.used_height || cmToMm(config.stock_height)}
+                  stockWidth={result.result.stock_dimensions.width}
+                  stockHeight={result.result.stock_dimensions.height}
                   piecesPlaced={result.result.pieces_placed}
                   showGrid={true}
                   showDimensions={true}

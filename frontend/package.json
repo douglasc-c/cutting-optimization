@@ -53,7 +53,8 @@
       "build/**/*",
       "node_modules/**/*",
       "public/electron.js",
-      "public/preload.js"
+      "public/preload.js",
+      "public/resultExport.js"
     ],
     "extraResources": [
       {

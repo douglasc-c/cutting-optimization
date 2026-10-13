@@ -172,3 +172,6 @@ frontend/output/
 *.config.json
 test_*.py
 debug_*.py
+
+# Keep regression tests in version control.
+!backend/tests/test_*.py

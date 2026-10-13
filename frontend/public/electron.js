@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 const { spawn } = require('child_process');
 const fs = require('fs');
+const { resultsToCsv } = require('./resultExport');
 
 let mainWindow;
 
@@ -25,7 +26,7 @@ function createWindow() {
     mainWindow.loadURL('http://localhost:3000');
   } else {
     // Para produção, carregar do diretório build
-    const indexPath = path.join(__dirname, 'index.html');
+    const indexPath = path.join(__dirname, '..', 'build', 'index.html');
     console.log('Carregando index.html de:', indexPath);
     mainWindow.loadFile(indexPath);
   }
@@ -107,7 +108,7 @@ ipcMain.handle('optimize-cutting', async (event, config) => {
     
     // Criar um arquivo temporário com a configuração no diretório temporário do sistema
     const os = require('os');
-    const tempDir = os.tmpdir();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cutting-optimization-'));
     const tempConfigPath = path.join(tempDir, 'cutting_optimization_config.json');
     
     // Criar diretório temporário para saída
@@ -147,15 +148,22 @@ ipcMain.handle('optimize-cutting', async (event, config) => {
       let result = '';
       let error = '';
       
+      pythonProcess.stdout.setEncoding('utf8');
+      pythonProcess.stderr.setEncoding('utf8');
       pythonProcess.stdout.on('data', (data) => {
-        result += data.toString();
+        result += data.toString('utf8');
       });
       
       pythonProcess.stderr.on('data', (data) => {
         error += data.toString();
       });
       
-              pythonProcess.on('close', (code) => {
+      pythonProcess.on('error', (err) => {
+        clearTimeout(timeout);
+        fs.rmSync(tempDir, { recursive: true, force: true });
+        reject(new Error(`Não foi possível iniciar o backend: ${err.message}`));
+      });
+      pythonProcess.on('close', (code) => {
           clearTimeout(timeout); // Limpar timeout
           
           // Limpar arquivos temporários
@@ -166,6 +174,9 @@ ipcMain.handle('optimize-cutting', async (event, config) => {
             // Limpar diretório de saída temporário
             if (fs.existsSync(tempOutputDir)) {
               fs.rmSync(tempOutputDir, { recursive: true, force: true });
+            }
+            if (fs.existsSync(tempDir)) {
+              fs.rmSync(tempDir, { recursive: true, force: true });
             }
           } catch (e) {
             console.log('Erro ao remover arquivos temporários:', e);
@@ -278,7 +289,10 @@ ipcMain.handle('export-results', async (event, results) => {
     });
     
     if (filePath) {
-      fs.writeFileSync(filePath, JSON.stringify(results, null, 2));
+      const content = path.extname(filePath).toLowerCase() === '.csv'
+        ? resultsToCsv(results)
+        : JSON.stringify(results, null, 2);
+      fs.writeFileSync(filePath, content, 'utf8');
       return { success: true, filePath };
     }
     
@@ -294,4 +308,20 @@ ipcMain.handle('get-app-version', () => {
 
 ipcMain.handle('get-app-name', () => {
   return app.getName();
+});
+
+// Keep the native save flow for SVG as well as JSON/CSV.
+ipcMain.handle('save-svg', async (_event, svg) => {
+  try {
+    if (typeof svg !== 'string' || !svg.includes('<svg')) throw new Error('SVG inválido');
+    const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
+      title: 'Exportar SVG', defaultPath: 'plano_corte.svg',
+      filters: [{ name: 'SVG', extensions: ['svg'] }]
+    });
+    if (canceled || !filePath) return { success: false, canceled: true };
+    fs.writeFileSync(filePath, svg, 'utf8');
+    return { success: true, filePath };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
 });

@@ -157,7 +157,7 @@ npm start
 ### Backend - Teste Rápido
 ```bash
 cd backend
-python tests/test_rapido.py
+python -m unittest discover -s tests -p "test_*.py"
 ```
 
 ### Backend - Demonstração Completa
@@ -196,6 +196,25 @@ python tests/test_final_melhorado.py
 - Análise de desperdício com gráficos
 - Comparação de resultados
 - Exportação para SVG
+
+## Aproveitamento do rolo e exportação SVG
+
+O fluxo desktop usa largura fixa e calcula o menor comprimento encontrado para todas as peças. O algoritmo combina Skyline (incluindo a estratégia anterior), MaxRects com três critérios de encaixe, diferentes ordenações e trocas locais. Cada peça mantém sua própria permissão de rotação. A busca respeita o limite de tempo e pode encerrar antes por falta de melhoria ou ao atingir um limite inferior comprovado. Uma tentativa de encaixe que falha não é tratada como prova de impossibilidade.
+
+No modo de altura automática, desperdício e eficiência usam a área efetivamente consumida: largura do rolo × comprimento utilizado. Em chapas de altura fixa, as métricas da chapa inteira são mantidas e o aproveitamento do trecho consumido aparece separadamente. `is_optimal` no algoritmo `fast` só é verdadeiro quando o comprimento atinge o limite inferior por área e dimensões, em milímetros inteiros.
+
+Preview e SVG usam o mesmo layout de nome e dimensões, com rotação, medição do texto, quebra de linha, fonte ajustável e margem interna. Cada peça possui um recorte de proteção e um título com o nome completo. O SVG preserva a escala física 1:1 em mm. Nomes muito extensos em peças pequenas terão fonte menor; fontes substituídas por um editor externo podem alterar a aparência, mas o recorte mantém o texto dentro da peça. As cores identificam o tipo da peça.
+
+Os resultados mantêm as dimensões do cálculo mesmo após editar o formulário. A exportação desktop salva SVG pelo diálogo nativo e gera CSV real com unidades explícitas, descrições escapadas e codificação UTF-8.
+
+Validação a partir da raiz:
+
+```bash
+npm run test:backend
+npm run test:desktop
+CI=true npm run test:frontend -- --watchAll=false --runInBand
+CI=true npm run build:frontend
+```
 
 ## 📈 Métricas
 
