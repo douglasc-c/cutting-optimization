@@ -132,6 +132,11 @@ class CuttingOptimizationAPI:
                     str(description)
                 ))
             
+            if stock_width <= 0 or stock_height < 0:
+                raise ValueError('Largura deve ser positiva e altura não pode ser negativa')
+            if not normalized_pieces or any(w <= 0 or h <= 0 or q <= 0 for w, h, q, _, _ in normalized_pieces):
+                raise ValueError('Informe peças com dimensões e quantidades positivas')
+            automatic_height = stock_height == 0
             effective_stock_height = self._resolve_effective_stock_height(
                 stock_width=stock_width,
                 stock_height=stock_height,
@@ -145,7 +150,7 @@ class CuttingOptimizationAPI:
             # Criar otimizador
             optimizer_class = self.available_algorithms[algorithm]
 
-            if algorithm == 'enhanced':
+            if algorithm in ('enhanced', 'fast'):
                 optimizer_pieces = normalized_pieces
             else:
                 optimizer_pieces = [
@@ -178,7 +183,7 @@ class CuttingOptimizationAPI:
 
             for placed_piece in result.pieces_placed:
                 current_description = str(placed_piece.get('description', '')).strip()
-                if current_description and not current_description.startswith('piece_'):
+                if algorithm == 'fast' or (current_description and not current_description.startswith('piece_')):
                     continue
 
                 piece_id = str(placed_piece.get('id', ''))
@@ -200,9 +205,6 @@ class CuttingOptimizationAPI:
                     f"{base_description} (Rotacionada)" if is_rotated else base_description
                 )
             
-            # Calcular métricas adicionais
-            efficiency_metrics = calculate_efficiency_metrics(result)
-
             pieces_placed = result.pieces_placed
             if pieces_placed:
                 used_width = max(piece['x'] + piece['width'] for piece in pieces_placed)
@@ -211,9 +213,18 @@ class CuttingOptimizationAPI:
                 used_width = 0
                 used_height = 0
 
+            material_height = used_height if automatic_height and used_height > 0 else effective_stock_height
+            if automatic_height:
+                result.total_area = stock_width * material_height
+                result.waste_percentage = (1 - result.used_area / result.total_area) * 100
+            validation = validate_pieces_fit_stock(stock_width, material_height, normalized_pieces)
+            efficiency_metrics = calculate_efficiency_metrics(result)
+            consumed_area = stock_width * used_height
+            consumed_efficiency = result.used_area / consumed_area * 100 if consumed_area else 0
+
             bbox_area = used_width * used_height if used_width > 0 and used_height > 0 else 0
             bbox_area_efficiency = (result.used_area / bbox_area) * 100 if bbox_area > 0 else 0.0
-            length_utilization_percentage = (used_height / effective_stock_height) * 100 if effective_stock_height > 0 else 0.0
+            length_utilization_percentage = (used_height / material_height) * 100 if material_height > 0 else 0.0
             
             # Preparar resposta
             response = {
@@ -221,6 +232,7 @@ class CuttingOptimizationAPI:
                 'algorithm': algorithm,
                 'result': {
                     'pieces_placed': result.pieces_placed,
+                    'stock_dimensions': {'width': stock_width, 'height': material_height},
                     'stock_used': result.stock_used,
                     'waste_percentage': result.waste_percentage,
                     'execution_time': result.execution_time,
@@ -233,12 +245,16 @@ class CuttingOptimizationAPI:
                     'used_width': used_width,
                     'used_height': used_height,
                     'suggested_stock_height': used_height,
-                    'effective_stock_height': effective_stock_height,
+                    'effective_stock_height': material_height,
+                    'automatic_height': automatic_height,
+                    'consumed_area_efficiency': consumed_efficiency,
+                    'consumed_waste_percentage': 100 - consumed_efficiency,
+                    'lower_bound_height': optimizer.get_statistics().get('lower_bound_height', 0),
                     'length_utilization_percentage': length_utilization_percentage,
                     'bbox_area_efficiency': bbox_area_efficiency
                 },
                 'validation': validation,
-                'statistics': optimizer.get_statistics()
+                'statistics': {**optimizer.get_statistics(), 'stock_dimensions': (stock_width, material_height), 'stock_area': result.total_area, 'theoretical_waste': (1 - result.used_area / result.total_area) * 100}
             }
             
             return response

@@ -4,6 +4,7 @@ declare global {
       optimizeCutting: (config: any) => Promise<any>;
       saveConfig: (config: any) => Promise<any>;
       loadConfig: () => Promise<any>;
+      saveSvg: (svg: string) => Promise<{success: boolean; canceled?: boolean; error?: string; filePath?: string}>;
       exportResults: (results: any) => Promise<any>;
       getAppVersion: () => Promise<string>;
       getAppName: () => Promise<string>;

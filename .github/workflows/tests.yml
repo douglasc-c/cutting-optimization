@@ -1,0 +1,27 @@
+name: Regression checks
+on:
+  pull_request:
+  push:
+    branches: [master]
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: pip install -r backend/requirements.txt
+      - run: npm ci --ignore-scripts
+      - run: npm run test:backend
+      - run: npm run test:desktop
+      - run: npm run test:frontend -- --watchAll=false --runInBand
+        env:
+          CI: 'true'
+      - run: npm run build:frontend
+        env:
+          CI: 'true'

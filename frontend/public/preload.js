@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Gerenciamento de arquivos
   saveConfig: (config) => ipcRenderer.invoke('save-config', config),
   loadConfig: () => ipcRenderer.invoke('load-config'),
+  saveSvg: (svg) => ipcRenderer.invoke('save-svg', svg),
   exportResults: (results) => ipcRenderer.invoke('export-results', results),
   
   // Informações da aplicação

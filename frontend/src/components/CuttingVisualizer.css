@@ -81,8 +81,7 @@
 
 /* Melhorar legibilidade do texto dentro das peças */
 .cutting-svg text {
-  text-shadow: 1px 1px 2px rgba(255, 255, 255, 0.8);
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  font-family: Arial, sans-serif;
 }
 
 .visualizer-legend {
