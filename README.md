@@ -295,3 +295,9 @@ Contribuições são bem-vindas! Por favor:
 ---
 
 **Desenvolvido com ❤️ para otimizar o uso de materiais e reduzir desperdícios industriais.**
+
+## Identidade visual
+
+A marca completa aparece no cabeçalho. O símbolo do rolo e da chapa é utilizado no ícone da janela, nos atalhos, no instalador Windows, no aplicativo macOS e no favicon. O arquivo aprovado está preservado em `frontend/assets/branding/logo-original.png`; os derivados ficam em `frontend/public`.
+
+Para regenerar os arquivos PNG, ICO e ICNS, instale Pillow e execute `npm run generate:branding`. O script mantém as proporções, as cores e a transparência da marca. O nome, a descrição e o idioma da página também refletem o Cutting Optimization. Para visualizar o novo ícone do aplicativo instalado, é necessário gerar e instalar uma nova versão.

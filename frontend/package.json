@@ -98,7 +98,7 @@
           ]
         }
       ],
-      "icon": "public/icon.png"
+      "icon": "public/icon.icns"
     },
     "win": {
       "target": [
@@ -116,7 +116,8 @@
             "ia32"
           ]
         }
-      ]
+      ],
+      "icon": "public/icon.ico"
     },
     "linux": {
       "target": [
@@ -146,11 +147,14 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "createStartMenuShortcut": true
+      "createStartMenuShortcut": true,
+      "installerIcon": "public/icon.ico",
+      "uninstallerIcon": "public/icon.ico",
+      "installerHeaderIcon": "public/icon.ico"
     },
     "dmg": {
       "title": "Cutting Optimization Installer",
-      "icon": "public/icon.png"
+      "icon": "public/icon.icns"
     }
   },
   "browserslist": {

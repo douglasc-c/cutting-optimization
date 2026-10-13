@@ -17,7 +17,8 @@
     "build:backend-exe": "cd backend && python build_exe_windows.py",
     "build:windows-installer": "scripts\\build-windows-installer.bat",
     "clean": "rm -rf frontend/node_modules backend/build backend/dist frontend/dist backend/cutting-optimization-backend.exe",
-    "test:desktop": "node --test frontend/tests/*.test.js"
+    "test:desktop": "node --test frontend/tests/*.test.js",
+    "generate:branding": "python scripts/generate_branding.py"
   },
   "keywords": [
     "cutting",
