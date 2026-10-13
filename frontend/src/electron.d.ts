@@ -1,18 +1,36 @@
 declare global {
   interface Window {
-    electronAPI: {
-      optimizeCutting: (config: any) => Promise<any>;
-      saveConfig: (config: any) => Promise<any>;
-      loadConfig: () => Promise<any>;
-      saveSvg: (svg: string) => Promise<{success: boolean; canceled?: boolean; error?: string; filePath?: string}>;
-      exportResults: (results: any) => Promise<any>;
+    electronAPI?: {
+      optimizeCutting: (config: any, jobId?: string) => Promise<any>;
+      cancelOptimization?: (jobId: string) => Promise<{ success: boolean }>;
+      saveConfig: (config: any, existingPath?: string) => Promise<any>;
+      loadConfig: (path?: string) => Promise<any>;
+      saveSvg: (
+        svg: string
+      ) => Promise<{
+        success: boolean;
+        canceled?: boolean;
+        error?: string;
+        filePath?: string;
+      }>;
+      exportResults: (results: any, format?: 'csv' | 'json') => Promise<any>;
+      loadWorkspace?: () => Promise<any>;
+      saveWorkspace?: (
+        data: any
+      ) => Promise<{ success: boolean; error?: string }>;
+      getRecentProjects?: () => Promise<string[]>;
+      setDocumentState?: (state: {
+        dirty: boolean;
+        busy: boolean;
+        name: string;
+      }) => Promise<void>;
+      closeWindow?: () => Promise<void>;
+      showExportInFolder?: (path: string) => Promise<void>;
       getAppVersion: () => Promise<string>;
       getAppName: () => Promise<string>;
-      onOptimizationProgress: (callback: (event: any, data: any) => void) => void;
-      onOptimizationComplete: (callback: (event: any, data: any) => void) => void;
-      onError: (callback: (event: any, data: any) => void) => void;
+      onMenuAction?: (callback: (action: string) => void) => () => void;
+      onOptimizationProgress?: (callback: (data: any) => void) => () => void;
     };
   }
 }
-
 export {};

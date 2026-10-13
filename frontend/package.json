@@ -54,7 +54,9 @@
       "node_modules/**/*",
       "public/electron.js",
       "public/preload.js",
-      "public/resultExport.js"
+      "public/resultExport.js",
+      "public/workspaceStore.js",
+      "public/optimizationRunner.js"
     ],
     "extraResources": [
       {

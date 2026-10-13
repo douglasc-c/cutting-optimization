@@ -1,327 +1,397 @@
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
-const path = require('path');
-const { spawn } = require('child_process');
-const fs = require('fs');
+const {
+  app,
+  BrowserWindow,
+  ipcMain,
+  dialog,
+  Menu,
+  shell,
+  screen,
+} = require('electron');
+const path = require('node:path');
+const fs = require('node:fs');
 const { resultsToCsv } = require('./resultExport');
-
-let mainWindow;
-
+const { createWorkspaceStore } = require('./workspaceStore');
+const { createOptimizationRunner } = require('./optimizationRunner');
+let mainWindow,
+  store,
+  allowClose = false,
+  quitting = false;
+let documentState = { dirty: false, busy: false, name: 'Projeto sem título' };
+const exportedPaths = new Set();
+const runner = createOptimizationRunner({
+  resolveBackend: () => {
+    const backend = app.isPackaged
+      ? path.join(process.resourcesPath, 'backend')
+      : path.resolve(__dirname, '..', '..', 'backend');
+    const executable = path.join(
+      backend,
+      process.platform === 'win32'
+        ? 'cutting-optimization-backend.exe'
+        : 'cutting-optimization-backend'
+    );
+    if (fs.existsSync(executable))
+      return { command: executable, args: [], cwd: backend };
+    const script = path.join(backend, 'main.py');
+    if (fs.existsSync(script))
+      return {
+        command: process.platform === 'win32' ? 'python' : 'python3',
+        args: [script],
+        cwd: backend,
+      };
+    throw new Error(
+      'O motor de corte não foi encontrado. Reinstale o aplicativo.'
+    );
+  },
+});
+const sendAction = action => {
+  if (mainWindow && !mainWindow.isDestroyed())
+    mainWindow.webContents.send('menu-action', action);
+};
+const recent = () => {
+  const files = store.read('recent-projects');
+  return Array.isArray(files)
+    ? files.filter(p => typeof p === 'string').slice(0, 8)
+    : [];
+};
+const addRecent = async file => {
+  await store.write(
+    'recent-projects',
+    [file, ...recent().filter(p => p !== file)].slice(0, 8)
+  );
+  app.addRecentDocument(file);
+};
+const saveBounds = () => {
+  if (mainWindow && !mainWindow.isDestroyed())
+    store.writeSync('window-state', {
+      ...mainWindow.getNormalBounds(),
+      maximized: mainWindow.isMaximized(),
+    });
+};
+function menu() {
+  const fileItems = [
+    {
+      label: 'Novo projeto',
+      accelerator: 'CmdOrCtrl+N',
+      click: () => sendAction('new'),
+      enabled: !documentState.busy,
+    },
+    {
+      label: 'Abrir projeto…',
+      accelerator: 'CmdOrCtrl+O',
+      click: () => sendAction('open'),
+      enabled: !documentState.busy,
+    },
+    {
+      label: 'Salvar projeto',
+      accelerator: 'CmdOrCtrl+S',
+      click: () => sendAction('save'),
+    },
+    {
+      label: 'Exportar…',
+      accelerator: 'CmdOrCtrl+Shift+E',
+      click: () => sendAction('export'),
+    },
+    { type: 'separator' },
+    {
+      label: 'Fechar',
+      accelerator: process.platform === 'darwin' ? 'Cmd+W' : 'Alt+F4',
+      click: () => mainWindow.close(),
+    },
+  ];
+  const items = [
+    ...(process.platform === 'darwin'
+      ? [
+          {
+            label: app.name,
+            submenu: [
+              { role: 'about', label: 'Sobre o Cutting Optimization' },
+              { type: 'separator' },
+              { label: 'Sair', accelerator: 'Cmd+Q', click: () => app.quit() },
+            ],
+          },
+        ]
+      : []),
+    { label: 'Arquivo', submenu: fileItems },
+    {
+      label: 'Editar',
+      submenu: [
+        { role: 'undo', label: 'Desfazer' },
+        { role: 'redo', label: 'Refazer' },
+        { type: 'separator' },
+        { role: 'cut', label: 'Recortar' },
+        { role: 'copy', label: 'Copiar' },
+        { role: 'paste', label: 'Colar' },
+        { role: 'selectAll', label: 'Selecionar tudo' },
+      ],
+    },
+    {
+      label: 'Corte',
+      submenu: [
+        {
+          label: 'Otimizar',
+          accelerator: 'CmdOrCtrl+Enter',
+          enabled: !documentState.busy,
+          click: () => sendAction('optimize'),
+        },
+      ],
+    },
+    {
+      label: 'Exibir',
+      submenu: [
+        { role: 'togglefullscreen', label: 'Tela cheia' },
+        ...(!app.isPackaged
+          ? [
+              {
+                role: 'toggleDevTools',
+                label: 'Ferramentas de desenvolvimento',
+              },
+            ]
+          : []),
+      ],
+    },
+  ];
+  Menu.setApplicationMenu(Menu.buildFromTemplate(items));
+}
 function createWindow() {
+  allowClose = false;
+  const state = store.read('window-state') || {};
+  const display = screen.getPrimaryDisplay().workArea;
+  const width = Math.max(
+    900,
+    Math.min(Number(state.width) || 1380, display.width)
+  );
+  const height = Math.max(
+    620,
+    Math.min(Number(state.height) || 900, display.height)
+  );
+  const visible =
+    Number.isFinite(state.x) &&
+    Number.isFinite(state.y) &&
+    screen
+      .getAllDisplays()
+      .some(
+        ({ workArea: b }) =>
+          state.x + width > b.x + 50 &&
+          state.x < b.x + b.width - 50 &&
+          state.y + height > b.y + 50 &&
+          state.y < b.y + b.height - 50
+      );
   mainWindow = new BrowserWindow({
-    width: 1200,
-    height: 800,
+    width,
+    height,
+    ...(visible ? { x: state.x, y: state.y } : {}),
+    minWidth: Math.min(900, display.width),
+    minHeight: Math.min(620, display.height),
+    show: false,
+    backgroundColor: '#f2f5f7',
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      preload: path.join(__dirname, 'preload.js')
+      preload: path.join(__dirname, 'preload.js'),
     },
     icon: path.join(__dirname, 'icon.png'),
-    title: 'Cutting Optimization'
+    title: 'Cutting Optimization',
   });
-
-  // Carregar a aplicação React
-  const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
-  
-  if (isDev) {
-    mainWindow.loadURL('http://localhost:3000');
-  } else {
-    // Para produção, carregar do diretório build
-    const indexPath = path.join(__dirname, '..', 'build', 'index.html');
-    console.log('Carregando index.html de:', indexPath);
-    mainWindow.loadFile(indexPath);
-  }
-
-  // Abrir DevTools em desenvolvimento
-  if (process.env.NODE_ENV === 'development') {
-    mainWindow.webContents.openDevTools();
-  }
-
+  mainWindow.once('ready-to-show', () => {
+    if (state.maximized) mainWindow.maximize();
+    mainWindow.show();
+  });
+  if (!app.isPackaged) mainWindow.loadURL('http://localhost:3000');
+  else mainWindow.loadFile(path.join(__dirname, '..', 'build', 'index.html'));
+  menu();
+  mainWindow.on('close', event => {
+    saveBounds();
+    if (!allowClose && (documentState.dirty || documentState.busy)) {
+      event.preventDefault();
+      sendAction('close');
+      return;
+    }
+    runner.cancelAll();
+  });
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
-
-  // Adicionar logs para debug
-  mainWindow.webContents.on('did-finish-load', () => {
-    console.log('Página carregada com sucesso');
-  });
-
-  mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
-    console.error('Erro ao carregar página:', errorCode, errorDescription, validatedURL);
-  });
-
-  // Abrir DevTools em caso de erro
-  mainWindow.webContents.on('crashed', () => {
-    console.error('Aplicação travou');
-    mainWindow.webContents.openDevTools();
+  mainWindow.webContents.on('render-process-gone', async () => {
+    const recovery = store.read('workspace');
+    documentState = {
+      dirty: !!recovery,
+      busy: false,
+      name: 'Projeto recuperado',
+    };
+    runner.cancelAll();
+    const response = await dialog.showMessageBox(mainWindow, {
+      type: 'error',
+      message: 'A interface foi interrompida.',
+      detail:
+        'Reabra a interface para recuperar o último cadastro salvo automaticamente.',
+      buttons: ['Reabrir interface', 'Fechar aplicativo'],
+      defaultId: 0,
+    });
+    if (response.response === 0) mainWindow.reload();
+    else {
+      allowClose = true;
+      mainWindow.close();
+    }
   });
 }
-
-app.whenReady().then(createWindow);
-
+app.whenReady().then(() => {
+  store = createWorkspaceStore(path.join(app.getPath('userData'), 'workspace'));
+  createWindow();
+});
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
+  if (process.platform !== 'darwin') app.quit();
 });
-
 app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) {
-    createWindow();
+  if (BrowserWindow.getAllWindows().length === 0) createWindow();
+});
+app.on('before-quit', event => {
+  if (
+    !allowClose &&
+    mainWindow &&
+    (documentState.dirty || documentState.busy)
+  ) {
+    event.preventDefault();
+    quitting = true;
+    sendAction('close');
+  } else runner.cancelAll();
+});
+ipcMain.handle('optimize-cutting', (event, config, jobId) =>
+  runner.run(event.sender, config, jobId)
+);
+ipcMain.handle('cancel-optimization', (event, jobId) => ({
+  success: runner.cancel(event.sender.id, jobId),
+}));
+ipcMain.handle('load-workspace', () => store.read('workspace'));
+ipcMain.handle('save-workspace', async (_event, data) => {
+  try {
+    if (data?.version !== 1 || !data.project)
+      throw new Error('Recuperação inválida');
+    await store.write('workspace', data);
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err.message };
   }
 });
-
-// IPC Handlers para comunicação com o frontend
-
-ipcMain.handle('optimize-cutting', async (event, config) => {
+ipcMain.handle('get-recent-projects', () => recent());
+ipcMain.handle('set-document-state', (_event, state) => {
+  documentState = {
+    dirty: !!state?.dirty,
+    busy: !!state?.busy,
+    name: String(state?.name || 'Projeto sem título'),
+  };
+  if (mainWindow) {
+    mainWindow.setTitle(
+      `${documentState.dirty ? '● ' : ''}${documentState.name} — Cutting Optimization`
+    );
+    mainWindow.setDocumentEdited(documentState.dirty);
+    mainWindow.setProgressBar(documentState.busy ? 2 : -1);
+    menu();
+  }
+});
+ipcMain.handle('close-window', () => {
+  allowClose = true;
+  if (quitting) app.quit();
+  else mainWindow?.close();
+});
+ipcMain.handle('save-config', async (_event, config, existingPath) => {
   try {
-    // Determinar o caminho do backend baseado se está empacotado ou não
-    const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
-    const backendPath = isDev 
-      ? path.resolve(__dirname, '..', '..', 'backend')
-      : path.resolve(process.resourcesPath, 'backend');
-    
-    // Tentar usar executável standalone primeiro (PyInstaller)
-    const standaloneExe = process.platform === 'win32' 
-      ? path.join(backendPath, 'cutting-optimization-backend.exe')
-      : path.join(backendPath, 'cutting-optimization-backend');
-    
-    const pythonScript = path.join(backendPath, 'main.py');
-    
-    // Verificar qual método usar: executável standalone ou Python do sistema
-    let commandToExecute;
-    let argsToExecute;
-    
-    if (fs.existsSync(standaloneExe)) {
-      // Usar executável standalone (não precisa de Python instalado)
-      commandToExecute = standaloneExe;
-      argsToExecute = [];
-      console.log('Usando executável standalone do backend');
-    } else if (fs.existsSync(pythonScript)) {
-      // Usar Python do sistema (requer Python instalado)
-      const pythonCommand = process.platform === 'win32' ? 'python' : 'python3';
-      commandToExecute = pythonCommand;
-      argsToExecute = [pythonScript];
-      console.log('Usando Python do sistema (requer Python instalado)');
-    } else {
-      throw new Error(`Backend não encontrado. Procurando em: ${backendPath}`);
-    }
-    
-    // Criar um arquivo temporário com a configuração no diretório temporário do sistema
-    const os = require('os');
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cutting-optimization-'));
-    const tempConfigPath = path.join(tempDir, 'cutting_optimization_config.json');
-    
-    // Criar diretório temporário para saída
-    const tempOutputDir = path.join(tempDir, 'cutting_optimization_output');
-    if (!fs.existsSync(tempOutputDir)) {
-      fs.mkdirSync(tempOutputDir, { recursive: true });
-    }
-    
-    console.log('Backend path:', backendPath);
-    console.log('Command:', commandToExecute);
-    console.log('Temp config path:', tempConfigPath);
-    console.log('Temp output dir:', tempOutputDir);
-    
-    fs.writeFileSync(tempConfigPath, JSON.stringify(config, null, 2));
-    
-    // Adicionar argumentos comuns
-    argsToExecute.push('--config', tempConfigPath);
-    argsToExecute.push('--output-dir', tempOutputDir);
-    argsToExecute.push('--json-output');
-    
-    const pythonProcess = spawn(commandToExecute, argsToExecute, {
-      cwd: backendPath
-    });
-    
-    return new Promise((resolve, reject) => {
-      const configuredTimeLimit = Number(config?.time_limit);
-      const safeTimeLimitSeconds = Number.isFinite(configuredTimeLimit) && configuredTimeLimit > 0
-        ? configuredTimeLimit
-        : 60;
-      // Dá folga para startup do processo + serialização da resposta JSON.
-      const timeoutMs = Math.max((safeTimeLimitSeconds + 30) * 1000, 120000);
-
-      const timeout = setTimeout(() => {
-        pythonProcess.kill();
-        reject(new Error(`Timeout: Python process demorou muito para responder (${Math.round(timeoutMs / 1000)}s)`));
-      }, timeoutMs);
-      let result = '';
-      let error = '';
-      
-      pythonProcess.stdout.setEncoding('utf8');
-      pythonProcess.stderr.setEncoding('utf8');
-      pythonProcess.stdout.on('data', (data) => {
-        result += data.toString('utf8');
+    let filePath =
+      typeof existingPath === 'string' && recent().includes(existingPath)
+        ? existingPath
+        : null;
+    if (!filePath) {
+      const saved = await dialog.showSaveDialog(mainWindow, {
+        title: 'Salvar projeto de corte',
+        defaultPath: 'projeto_corte.json',
+        filters: [{ name: 'Projeto de corte', extensions: ['json'] }],
       });
-      
-      pythonProcess.stderr.on('data', (data) => {
-        error += data.toString();
-      });
-      
-      pythonProcess.on('error', (err) => {
-        clearTimeout(timeout);
-        fs.rmSync(tempDir, { recursive: true, force: true });
-        reject(new Error(`Não foi possível iniciar o backend: ${err.message}`));
-      });
-      pythonProcess.on('close', (code) => {
-          clearTimeout(timeout); // Limpar timeout
-          
-          // Limpar arquivos temporários
-          try {
-            if (fs.existsSync(tempConfigPath)) {
-              fs.unlinkSync(tempConfigPath);
-            }
-            // Limpar diretório de saída temporário
-            if (fs.existsSync(tempOutputDir)) {
-              fs.rmSync(tempOutputDir, { recursive: true, force: true });
-            }
-            if (fs.existsSync(tempDir)) {
-              fs.rmSync(tempDir, { recursive: true, force: true });
-            }
-          } catch (e) {
-            console.log('Erro ao remover arquivos temporários:', e);
-          }
-          
-          if (code === 0) {
-                      try {
-              // Tentar parsear o resultado JSON do Python
-              const lines = result.trim().split('\n');
-              let jsonResult = null;
-              
-              // Tentar parsear o resultado completo primeiro
-              try {
-                jsonResult = JSON.parse(result.trim());
-              } catch (e) {
-                // Se não funcionar, tentar linha por linha
-                for (let i = 0; i < lines.length; i++) {
-                  const line = lines[i].trim();
-                  
-                  if (line.startsWith('{') || line.startsWith('[')) {
-                    try {
-                      jsonResult = JSON.parse(line);
-                      break;
-                    } catch (e) {
-                      continue;
-                    }
-                  }
-                }
-              }
-              
-              if (jsonResult) {
-                resolve(jsonResult);
-              } else {
-                // Se não conseguir parsear JSON, retornar erro
-                reject(new Error('Não foi possível processar o resultado do Python'));
-              }
-          } catch (e) {
-            console.error('Erro ao processar resultado:', e);
-            reject(new Error('Erro ao processar resultado do Python'));
-          }
-        } else {
-          // Em alguns cenarios o backend escreve o erro no stdout e nao no stderr.
-          const stdOutText = (result || '').trim();
-          const stdErrText = (error || '').trim();
-          const combinedOutput = [stdErrText, stdOutText].filter(Boolean).join('\n').trim();
-
-          console.error(`Erro no Python (exit code ${code}):`, combinedOutput || '(sem detalhes)');
-          reject(new Error(`Erro no Python (codigo ${code}): ${combinedOutput || 'sem detalhes'}`));
-        }
-      });
-    });
-  } catch (error) {
-    console.error('Erro geral:', error);
-    throw new Error(`Erro ao executar otimização: ${error.message}`);
-  }
-});
-
-ipcMain.handle('save-config', async (event, config) => {
-  try {
-    const { filePath } = await dialog.showSaveDialog(mainWindow, {
-      title: 'Salvar Configuração',
-      defaultPath: 'config.json',
-      filters: [
-        { name: 'JSON Files', extensions: ['json'] }
-      ]
-    });
-    
-    if (filePath) {
-      fs.writeFileSync(filePath, JSON.stringify(config, null, 2));
-      return { success: true, filePath };
+      if (saved.canceled || !saved.filePath)
+        return { success: false, canceled: true };
+      filePath = saved.filePath;
     }
-    
-    return { success: false, error: 'Nenhum arquivo selecionado' };
-  } catch (error) {
-    return { success: false, error: error.message };
-  }
-});
-
-ipcMain.handle('load-config', async (event) => {
-  try {
-    const { filePaths } = await dialog.showOpenDialog(mainWindow, {
-      title: 'Carregar Configuração',
-      filters: [
-        { name: 'JSON Files', extensions: ['json'] }
-      ],
-      properties: ['openFile']
-    });
-    
-    if (filePaths && filePaths.length > 0) {
-      const configData = fs.readFileSync(filePaths[0], 'utf8');
-      const config = JSON.parse(configData);
-      return { success: true, config, filePath: filePaths[0] };
-    }
-    
-    return { success: false, error: 'Nenhum arquivo selecionado' };
-  } catch (error) {
-    return { success: false, error: error.message };
-  }
-});
-
-ipcMain.handle('export-results', async (event, results) => {
-  try {
-    const { filePath } = await dialog.showSaveDialog(mainWindow, {
-      title: 'Exportar Resultados',
-      defaultPath: 'resultados_corte.json',
-      filters: [
-        { name: 'JSON Files', extensions: ['json'] },
-        { name: 'CSV Files', extensions: ['csv'] }
-      ]
-    });
-    
-    if (filePath) {
-      const content = path.extname(filePath).toLowerCase() === '.csv'
-        ? resultsToCsv(results)
-        : JSON.stringify(results, null, 2);
-      fs.writeFileSync(filePath, content, 'utf8');
-      return { success: true, filePath };
-    }
-    
-    return { success: false, error: 'Nenhum arquivo selecionado' };
-  } catch (error) {
-    return { success: false, error: error.message };
-  }
-});
-
-ipcMain.handle('get-app-version', () => {
-  return app.getVersion();
-});
-
-ipcMain.handle('get-app-name', () => {
-  return app.getName();
-});
-
-// Keep the native save flow for SVG as well as JSON/CSV.
-ipcMain.handle('save-svg', async (_event, svg) => {
-  try {
-    if (typeof svg !== 'string' || !svg.includes('<svg')) throw new Error('SVG inválido');
-    const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
-      title: 'Exportar SVG', defaultPath: 'plano_corte.svg',
-      filters: [{ name: 'SVG', extensions: ['svg'] }]
-    });
-    if (canceled || !filePath) return { success: false, canceled: true };
-    fs.writeFileSync(filePath, svg, 'utf8');
+    fs.writeFileSync(filePath, JSON.stringify(config, null, 2), 'utf8');
+    await addRecent(filePath);
     return { success: true, filePath };
   } catch (err) {
     return { success: false, error: err.message };
   }
 });
+ipcMain.handle('load-config', async (_event, requestedPath) => {
+  try {
+    let filePath =
+      typeof requestedPath === 'string' && recent().includes(requestedPath)
+        ? requestedPath
+        : null;
+    if (!filePath) {
+      const opened = await dialog.showOpenDialog(mainWindow, {
+        title: 'Abrir projeto de corte',
+        filters: [{ name: 'Projeto de corte', extensions: ['json'] }],
+        properties: ['openFile'],
+      });
+      if (opened.canceled || !opened.filePaths.length)
+        return { success: false, canceled: true };
+      filePath = opened.filePaths[0];
+    }
+    const config = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    if (
+      !config ||
+      !Array.isArray(config.pieces) ||
+      !Number.isFinite(config.stock_width)
+    )
+      throw new Error('O arquivo não contém um projeto de corte válido.');
+    await addRecent(filePath);
+    return { success: true, config, filePath };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+ipcMain.handle('export-results', async (_event, results, format = 'json') => {
+  try {
+    if (
+      !['csv', 'json'].includes(format) ||
+      !Array.isArray(results?.result?.pieces_placed)
+    )
+      throw new Error('Resultado inválido');
+    const saved = await dialog.showSaveDialog(mainWindow, {
+      title: `Exportar ${format.toUpperCase()}`,
+      defaultPath: `resultado_corte.${format}`,
+      filters: [{ name: format.toUpperCase(), extensions: [format] }],
+    });
+    if (saved.canceled || !saved.filePath)
+      return { success: false, canceled: true };
+    fs.writeFileSync(
+      saved.filePath,
+      format === 'csv'
+        ? resultsToCsv(results)
+        : JSON.stringify(results, null, 2),
+      'utf8'
+    );
+    exportedPaths.add(saved.filePath);
+    return { success: true, filePath: saved.filePath };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+ipcMain.handle('save-svg', async (_event, svg) => {
+  try {
+    if (typeof svg !== 'string' || !svg.includes('<svg'))
+      throw new Error('SVG inválido');
+    const saved = await dialog.showSaveDialog(mainWindow, {
+      title: 'Exportar plano SVG em escala 1:1',
+      defaultPath: 'plano_corte.svg',
+      filters: [{ name: 'SVG', extensions: ['svg'] }],
+    });
+    if (saved.canceled || !saved.filePath)
+      return { success: false, canceled: true };
+    fs.writeFileSync(saved.filePath, svg, 'utf8');
+    exportedPaths.add(saved.filePath);
+    return { success: true, filePath: saved.filePath };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+ipcMain.handle('show-export-in-folder', (_event, file) => {
+  if (exportedPaths.has(file)) shell.showItemInFolder(file);
+});
+ipcMain.handle('get-app-version', () => app.getVersion());
+ipcMain.handle('get-app-name', () => app.getName());

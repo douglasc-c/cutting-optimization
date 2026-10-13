@@ -216,6 +216,28 @@ CI=true npm run test:frontend -- --watchAll=false --runInBand
 CI=true npm run build:frontend
 ```
 
+## Área de trabalho desktop
+
+O cadastro e o plano de corte ficam em painéis lado a lado, com uma divisória ajustável por arraste ou pelas setas do teclado. Em janelas menores, os painéis se empilham. A tabela de peças permite duplicar linhas, remover e desfazer a última remoção; medidas, quantidade e encaixe na largura são validados junto ao campo.
+
+O visualizador permite zoom pelos botões ou pela roda do mouse, deslocamento por arraste e ajuste à tela. Selecionar uma peça mostra suas medidas, posição e rotação. Também é possível usar Tab/Enter para selecionar peças e, com foco na área do plano, usar `+`/`-` para zoom, setas para deslocar e `0` para ajustar.
+
+O resultado anterior continua disponível durante outro cálculo ou após um cancelamento. Se o cadastro mudou, um aviso identifica o plano como desatualizado. O botão Cancelar interrompe o processo Python; o tempo decorrido e a etapa aparecem sem uma porcentagem fictícia.
+
+A recuperação automática mantém o último cadastro e plano no computador entre sessões. Ela não substitui o arquivo do projeto: o aplicativo indica alterações não salvas e solicita uma decisão antes de abrir outro projeto, criar um novo ou fechar. Salvar grava um JSON compatível com o backend; os projetos recentes ajudam a retomar arquivos já abertos.
+
+A ação Exportar reúne SVG, CSV e JSON e oferece Abrir pasta após salvar. Cancelar um diálogo não gera um aviso de erro. PDF e tema escuro não fazem parte desta etapa.
+
+| Ação | Atalho |
+|---|---|
+| Novo projeto | Ctrl/Cmd + N |
+| Abrir projeto | Ctrl/Cmd + O |
+| Salvar projeto | Ctrl/Cmd + S |
+| Otimizar corte | Ctrl/Cmd + Enter |
+| Exportar | Ctrl/Cmd + Shift + E |
+
+A janela lembra seu tamanho, posição e estado maximizado. O menu nativo está em português, a barra de título sinaliza alterações e a aplicação trata falhas da interface oferecendo reabertura para recuperar o trabalho.
+
 ## 📈 Métricas
 
 - Eficiência de área
