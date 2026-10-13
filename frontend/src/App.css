@@ -100,29 +100,22 @@ h2 {
 }
 .app-brand {
   display: flex;
-  align-items: center;
-  gap: 12px;
-  white-space: nowrap;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
 }
-.app-brand strong {
+.brand-logo {
   display: block;
-  font-size: 16px;
-  letter-spacing: -0.3px;
+  width: clamp(230px, 30vw, 320px);
+  max-width: 100%;
+  height: auto;
 }
-.app-brand span:not(.brand-icon) {
+.app-brand > span {
   display: block;
-  font-size: 11px;
+  font-size: 10px;
   color: var(--muted);
-  margin-top: 3px;
-}
-.brand-icon {
-  display: grid;
-  place-items: center;
-  width: 39px;
-  height: 39px;
-  background: #e0f1ed;
-  color: var(--accent);
-  border-radius: 10px;
+  padding-left: 4px;
 }
 .toolbar-actions {
   display: flex;

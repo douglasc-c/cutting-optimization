@@ -189,7 +189,10 @@ function createWindow() {
       contextIsolation: true,
       preload: path.join(__dirname, 'preload.js'),
     },
-    icon: path.join(__dirname, 'icon.png'),
+    icon: path.join(
+      app.isPackaged ? path.join(__dirname, '..', 'build') : __dirname,
+      process.platform === 'win32' ? 'icon.ico' : 'icon.png'
+    ),
     title: 'Cutting Optimization',
   });
   mainWindow.once('ready-to-show', () => {

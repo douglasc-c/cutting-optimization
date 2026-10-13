@@ -482,13 +482,12 @@ export default function App() {
     <div className="App">
       <header className="app-toolbar">
         <div className="app-brand">
-          <span className="brand-icon">
-            <Icon name="cut" size={23} />
-          </span>
-          <div>
-            <strong>Cutting Optimization</strong>
-            <span>Planejamento de corte</span>
-          </div>
+          <img
+            className="brand-logo"
+            src={`${process.env.PUBLIC_URL}/branding/logo.png`}
+            alt="cutting-optimization"
+          />
+          <span>Planejamento de corte</span>
         </div>
         <div className="toolbar-actions">
           <button
