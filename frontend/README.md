@@ -198,3 +198,11 @@ npm install
 ---
 
 **Frontend Electron + React do sistema de otimização de corte bidimensional.**
+
+### Executar a interface correta
+
+- `npm run electron`: gera o build atual e abre a interface local, sem depender de localhost:3000.
+- `npm run electron-dev`: inicia um servidor exclusivo em porta livre, verifica a identidade da página e abre o Electron com atualização automática.
+- `npm start`: apenas interface web.
+
+O modo desktop define o ícone criado para o aplicativo no Dock do macOS, além dos ícones da janela e do pacote instalado.

@@ -2,7 +2,7 @@
 # Autor: Douglas Cesário
 # Versão: 1.0.0
 
-.PHONY: help install install-backend install-frontend test test-backend test-frontend start start-backend start-frontend clean build dist setup validate
+.PHONY: help install install-backend install-frontend test test-backend test-frontend start start-backend start-frontend dev-electron clean build dist setup validate
 
 # Comandos principais
 help: ## Mostra esta ajuda
@@ -38,15 +38,18 @@ test-frontend: ## Executa testes do frontend
 	@echo "🧪 Executando testes do frontend..."
 	cd frontend && npm test
 
-start: ## Inicia o aplicativo completo
+start: ## Gera o build local e inicia o Cutting Optimization
 	@echo "🚀 Iniciando aplicativo..."
 	@npm run start:electron
+
+dev-electron: ## Inicia o Electron com atualização automática em porta própria
+	@npm run dev:electron
 
 start-backend: ## Inicia o backend em modo interativo
 	@echo "🚀 Iniciando backend..."
 	cd backend && python3 main.py --interactive
 
-start-frontend: ## Inicia o frontend Electron
+start-frontend: ## Inicia o Electron com servidor de desenvolvimento próprio
 	@echo "🚀 Iniciando frontend..."
 	cd frontend && npm run electron-dev
 

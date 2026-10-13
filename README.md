@@ -301,3 +301,11 @@ Contribuições são bem-vindas! Por favor:
 A marca completa aparece no cabeçalho. O símbolo do rolo e da chapa é utilizado no ícone da janela, nos atalhos, no instalador Windows, no aplicativo macOS e no favicon. O arquivo aprovado está preservado em `frontend/assets/branding/logo-original.png`; os derivados ficam em `frontend/public`.
 
 Para regenerar os arquivos PNG, ICO e ICNS, instale Pillow e execute `npm run generate:branding`. O script mantém as proporções, as cores e a transparência da marca. O nome, a descrição e o idioma da página também refletem o Cutting Optimization. Para visualizar o novo ícone do aplicativo instalado, é necessário gerar e instalar uma nova versão.
+
+## Inicialização desktop sem conflito de portas
+
+`make start` e `npm run start:electron` geram a interface atual e abrem o build local no Electron. Nenhum servidor da porta 3000 é usado, mesmo que outra aplicação esteja aberta nela.
+
+Para desenvolvimento com atualização automática, use `npm run dev:electron` ou `make dev-electron`. O launcher inicia um servidor próprio em uma porta livre e só abre o Electron depois de confirmar o identificador do Cutting Optimization. Ao fechar o Electron, o servidor desse processo é encerrado. A versão web continua disponível por `npm run start:frontend`.
+
+No macOS, o aplicativo define o ícone do Dock explicitamente durante a execução. Após atualizar o repositório, feche a janela antiga e execute `make start` novamente.

@@ -4,12 +4,17 @@ const { EventEmitter } = require('node:events');
 const vm = require('node:vm');
 const fs = require('node:fs');
 const path = require('node:path');
-async function fixture() {
+async function fixture({
+  packaged = true,
+  platform = process.platform,
+  devUrl,
+} = {}) {
   const handlers = new Map();
   const events = [];
   const app = new EventEmitter();
   Object.assign(app, {
-    isPackaged: true,
+    isPackaged: packaged,
+    dock: { setIcon: file => events.push(['dockIcon', file]) },
     name: 'Cutting Optimization',
     whenReady: () => Promise.resolve(),
     getPath: () => '/tmp/test-workspace',
@@ -33,7 +38,12 @@ async function fixture() {
     isMaximized() {
       return false;
     }
-    loadFile() {}
+    loadFile(file) {
+      events.push(['loadFile', file]);
+    }
+    loadURL(url) {
+      events.push(['loadURL', url]);
+    }
     show() {}
     setTitle() {}
     setDocumentEdited() {}
@@ -79,18 +89,29 @@ async function fixture() {
   };
   const directory = path.resolve(__dirname, '../public');
   const requireMock = name =>
-    name === 'electron'
-      ? electron
-      : name === './workspaceStore'
-        ? { createWorkspaceStore: () => store }
-        : name === './optimizationRunner'
-          ? { createOptimizationRunner: () => runner }
-          : name === './resultExport'
-            ? require('../public/resultExport')
-            : require(name);
+    name === 'node:fs'
+      ? { ...fs, existsSync: () => true }
+      : name === 'electron'
+        ? electron
+        : name === './workspaceStore'
+          ? { createWorkspaceStore: () => store }
+          : name === './optimizationRunner'
+            ? { createOptimizationRunner: () => runner }
+            : name === './resultExport'
+              ? require('../public/resultExport')
+              : require(name);
   vm.runInNewContext(
     fs.readFileSync(path.join(directory, 'electron.js'), 'utf8'),
-    { require: requireMock, __dirname: directory, process }
+    {
+      require: requireMock,
+      __dirname: directory,
+      URL,
+      process: {
+        ...process,
+        platform,
+        env: { ...process.env, CUTTING_DEV_SERVER_URL: devUrl },
+      },
+    }
   );
   await new Promise(resolve => setImmediate(resolve));
   return { handlers, events, app, window };
@@ -128,4 +149,45 @@ test('canceled native file dialogs are normal outcomes', async () => {
   const { handlers } = await fixture();
   assert.equal((await handlers.get('save-config')({}, {})).canceled, true);
   assert.equal((await handlers.get('load-config')({})).canceled, true);
+});
+
+test('unpackaged startup loads the local build instead of a preexisting port 3000 app', async () => {
+  const { events } = await fixture({ packaged: false });
+  assert.equal(
+    events.some(e => Array.isArray(e) && e[0] === 'loadURL'),
+    false
+  );
+  assert.ok(
+    events.some(
+      e =>
+        Array.isArray(e) &&
+        e[0] === 'loadFile' &&
+        e[1].endsWith(path.join('build', 'index.html'))
+    )
+  );
+});
+test('explicit development startup uses only the server URL from the launcher', async () => {
+  const { events } = await fixture({
+    packaged: false,
+    devUrl: 'http://127.0.0.1:45123',
+  });
+  assert.ok(
+    events.some(
+      e =>
+        Array.isArray(e) &&
+        e[0] === 'loadURL' &&
+        e[1] === 'http://127.0.0.1:45123/'
+    )
+  );
+});
+test('macOS applies the approved Dock icon in development', async () => {
+  const { events } = await fixture({ packaged: false, platform: 'darwin' });
+  assert.ok(
+    events.some(
+      e =>
+        Array.isArray(e) &&
+        e[0] === 'dockIcon' &&
+        e[1].endsWith(path.join('public', 'icon.png'))
+    )
+  );
 });
