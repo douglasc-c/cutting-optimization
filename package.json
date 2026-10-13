@@ -9,7 +9,7 @@
     "install:all": "npm run install:backend && npm run install:frontend",
     "start:backend": "cd backend && python main.py --interactive",
     "start:frontend": "cd frontend && npm start",
-    "start:electron": "cd frontend && npm run electron-dev",
+    "start:electron": "npm run electron --workspace=frontend",
     "test:backend": "python -m unittest discover -s backend/tests -p \"test_*.py\"",
     "test:frontend": "npm test --workspace=frontend --",
     "build:frontend": "cd frontend && npm run build",
@@ -18,7 +18,8 @@
     "build:windows-installer": "scripts\\build-windows-installer.bat",
     "clean": "rm -rf frontend/node_modules backend/build backend/dist frontend/dist backend/cutting-optimization-backend.exe",
     "test:desktop": "node --test frontend/tests/*.test.js",
-    "generate:branding": "python scripts/generate_branding.py"
+    "generate:branding": "python scripts/generate_branding.py",
+    "dev:electron": "npm run electron-dev --workspace=frontend"
   },
   "keywords": [
     "cutting",

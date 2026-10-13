@@ -199,8 +199,23 @@ function createWindow() {
     if (state.maximized) mainWindow.maximize();
     mainWindow.show();
   });
-  if (!app.isPackaged) mainWindow.loadURL('http://localhost:3000');
-  else mainWindow.loadFile(path.join(__dirname, '..', 'build', 'index.html'));
+  const devUrl = !app.isPackaged ? process.env.CUTTING_DEV_SERVER_URL : null;
+  if (devUrl) {
+    const url = new URL(devUrl);
+    if (url.protocol !== 'http:' || url.hostname !== '127.0.0.1' || !url.port) {
+      throw new Error(
+        'Endereço de desenvolvimento inválido. Use npm run electron-dev.'
+      );
+    }
+    mainWindow.loadURL(url.href);
+  } else {
+    const index = path.join(__dirname, '..', 'build', 'index.html');
+    if (!fs.existsSync(index))
+      throw new Error(
+        'Build local ausente. Execute make start ou npm run electron.'
+      );
+    mainWindow.loadFile(index);
+  }
   menu();
   mainWindow.on('close', event => {
     saveBounds();
@@ -237,10 +252,29 @@ function createWindow() {
     }
   });
 }
-app.whenReady().then(() => {
-  store = createWorkspaceStore(path.join(app.getPath('userData'), 'workspace'));
-  createWindow();
-});
+app
+  .whenReady()
+  .then(() => {
+    store = createWorkspaceStore(
+      path.join(app.getPath('userData'), 'workspace')
+    );
+    if (process.platform === 'darwin' && app.dock) {
+      app.dock.setIcon(
+        path.join(
+          app.isPackaged ? path.join(__dirname, '..', 'build') : __dirname,
+          'icon.png'
+        )
+      );
+    }
+    createWindow();
+  })
+  .catch(error => {
+    dialog.showErrorBox(
+      'Não foi possível iniciar o Cutting Optimization',
+      error.message
+    );
+    app.quit();
+  });
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
