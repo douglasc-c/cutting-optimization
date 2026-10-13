@@ -11,7 +11,7 @@
     "start:frontend": "cd frontend && npm start",
     "start:electron": "cd frontend && npm run electron-dev",
     "test:backend": "python -m unittest discover -s backend/tests -p \"test_*.py\"",
-    "test:frontend": "cd frontend && npm test",
+    "test:frontend": "npm test --workspace=frontend --",
     "build:frontend": "cd frontend && npm run build",
     "dist:frontend": "cd frontend && npm run dist",
     "build:backend-exe": "cd backend && python build_exe_windows.py",

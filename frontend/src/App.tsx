@@ -1,442 +1,1009 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import './App.css';
 import CuttingVisualizer from './components/CuttingVisualizer';
+import Icon from './components/Icon';
+import {
+  CutResult,
+  Project,
+  Recovery,
+  newId,
+  newPiece,
+  newProject,
+  signature,
+  cutSignature,
+  validate,
+  toConfig,
+  fromConfig,
+  validRecovery,
+} from './utils/workspace';
+import { generateCuttingSvg } from './utils/cuttingSvg';
 
-// Verificação de segurança para a API do Electron
-const MM_PER_CM = 10;
+const recoveryKey = 'cutting-workspace-v1';
+const message = (err: unknown) =>
+  err instanceof Error ? err.message : String(err);
+const format = (n: number) =>
+  n.toLocaleString('pt-BR', { maximumFractionDigits: 1 });
 
-interface CuttingConfig {
-  stock_width: number;
-  stock_height: number;
-  pieces: Array<[number, number, number, boolean, string]>; // [width, height, quantity, allow_rotation, description]
-  time_limit: number;
-  optimization_mode: 'fast' | 'refined';
-}
-
-interface PiecePlaced {
-  id: string;
-  description?: string;
-  rotated?: boolean;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  area: number;
-}
-
-interface StockUsed {
-  width: number;
-  height: number;
-}
-
-interface EfficiencyMetrics {
-  area_efficiency: number;
-  waste_percentage: number;
-}
-
-interface OptimizationResult {
-  success: boolean;
-  algorithm: string;
-  result: {
-    pieces_placed: PiecePlaced[];
-    stock_used: number;
-    stock_dimensions: StockUsed;
-    waste_percentage: number;
-    execution_time: number;
-    is_optimal: boolean;
-    total_area: number;
-    used_area: number;
-  };
-  efficiency_metrics: EfficiencyMetrics;
-  layout_metrics?: {
-    used_width: number;
-    used_height: number;
-    suggested_stock_height: number;
-    effective_stock_height?: number;
-    length_utilization_percentage: number;
-    bbox_area_efficiency: number;
-    consumed_area_efficiency?: number;
-    consumed_waste_percentage?: number;
-    lower_bound_height?: number;
-  };
-  error?: string;
-}
-
-const cmToMm = (valueCm: number): number => Math.max(0, Math.round((Number(valueCm) || 0) * MM_PER_CM));
-const mmToCm = (valueMm: number): number => (Number(valueMm) || 0) / MM_PER_CM;
-const mm2ToCm2 = (valueMm2: number): number => (Number(valueMm2) || 0) / (MM_PER_CM * MM_PER_CM);
-
-function App() {
-  const [config, setConfig] = useState<CuttingConfig>({
-    stock_width: 100,
-    stock_height: 0,
-    pieces: [[20, 30, 2, true, "Prancha Grande"], [15, 20, 3, true, "Prancha Média"]], // [width, height, quantity, allow_rotation, description]
-    time_limit: 60,
-    optimization_mode: 'refined'
-  });
-
-  const [result, setResult] = useState<OptimizationResult | null>(null);
+export default function App() {
+  const [project, setProject] = useState<Project>(newProject);
+  const [result, setResult] = useState<CutResult | null>(null);
+  const [calculatedSignature, setCalculatedSignature] = useState('');
+  const [savedSignature, setSavedSignature] = useState('');
+  const [filePath, setFilePath] = useState('');
+  const [panelWidth, setPanelWidth] = useState(540);
+  const [hydrated, setHydrated] = useState(false);
+  const [recoveryStatus, setRecoveryStatus] = useState('');
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [canceling, setCanceling] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
+  const [runLimit, setRunLimit] = useState('60');
+  const [phase, setPhase] = useState('Preparando o motor de corte');
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [lastExport, setLastExport] = useState('');
+  const [exportOpen, setExportOpen] = useState(false);
+  const [recent, setRecent] = useState<string[]>([]);
+  const [pending, setPending] = useState<null | 'new' | 'open' | 'close'>(null);
+  const [pendingPath, setPendingPath] = useState<string | undefined>();
+  const [removed, setRemoved] = useState<{
+    row: Project['pieces'][0];
+    index: number;
+  } | null>(null);
+  const [fileBusy, setFileBusy] = useState(false);
+  const activeJob = useRef('');
+  const live = useRef<{
+    project: Project;
+    recovery: Recovery;
+    command: (action: string) => void;
+  }>({
+    project,
+    recovery: {
+      version: 1,
+      project,
+      result: null,
+      calculatedSignature: '',
+      savedSignature: '',
+      filePath: '',
+      panelWidth: 540,
+    },
+    command: () => undefined,
+  });
+  const workspace = useRef<HTMLElement>(null);
+  const errors = validate(project);
+  const invalid = Object.keys(errors).length > 0;
+  const dirty = hydrated && signature(project) !== savedSignature;
+  const stale = !!result && cutSignature(project) !== calculatedSignature;
+  const recovery: Recovery = {
+    version: 1,
+    project,
+    result,
+    calculatedSignature,
+    savedSignature,
+    filePath,
+    panelWidth,
+  };
 
-  // Teste da API do Electron na inicialização
+  const writeRecovery = async (data: Recovery) => {
+    if (window.electronAPI?.saveWorkspace) {
+      const saved = await window.electronAPI.saveWorkspace(data);
+      if (!saved.success)
+        throw new Error(saved.error || 'Falha ao salvar recuperação');
+    } else localStorage.setItem(recoveryKey, JSON.stringify(data));
+  };
   useEffect(() => {
-    // Verificação silenciosa da API do Electron
-    if (process.env.NODE_ENV === 'development' && window.electronAPI) {
-      // eslint-disable-next-line no-console
-      console.log('API do Electron disponível');
-    }
+    let disposed = false;
+    (async () => {
+      try {
+        const data = window.electronAPI?.loadWorkspace
+          ? await window.electronAPI.loadWorkspace()
+          : JSON.parse(localStorage.getItem(recoveryKey) || 'null');
+        if (disposed) return;
+        if (validRecovery(data)) {
+          setProject(data.project);
+          setResult(data.result);
+          setCalculatedSignature(data.calculatedSignature);
+          setSavedSignature(data.savedSignature);
+          setFilePath(data.filePath);
+          setPanelWidth(Math.max(460, Math.min(800, data.panelWidth)));
+          setNotice('Seu último trabalho foi recuperado.');
+        } else {
+          setSavedSignature(signature(live.current.project));
+          if (data)
+            setNotice(
+              'A recuperação anterior não pôde ser carregada. Seus arquivos salvos continuam disponíveis.'
+            );
+        }
+      } catch (err) {
+        if (!disposed) {
+          setSavedSignature(signature(live.current.project));
+          setNotice(`Recuperação indisponível: ${message(err)}`);
+        }
+      }
+      if (!disposed) setHydrated(true);
+    })();
+    return () => {
+      disposed = true;
+    };
   }, []);
-
-  const handleOptimize = async () => {
-    setLoading(true);
-    setError(null);
-    setResult(null);
-
-    try {
-      if (!window.electronAPI) {
-        throw new Error('Esta aplicação deve ser executada no Electron');
-      }
-
-      if (!Number.isFinite(config.stock_width) || config.stock_width <= 0 || config.stock_height < 0 || !config.pieces.length || config.pieces.some(([w,h,q]) => !Number.isFinite(w) || !Number.isFinite(h) || !Number.isInteger(q) || cmToMm(w) <= 0 || cmToMm(h) <= 0 || q <= 0)) {
-        throw new Error('Informe largura e dimensões positivas, com quantidades inteiras maiores que zero.');
-      }
-      const payloadConfig: CuttingConfig = {
-        ...config,
-        stock_width: cmToMm(config.stock_width),
-        stock_height: config.stock_height > 0 ? cmToMm(config.stock_height) : 0,
-        pieces: config.pieces.map(([w, h, q, rot, desc]) => [
-          cmToMm(w),
-          cmToMm(h),
-          Math.max(0, Math.floor(q || 0)),
-          rot,
-          desc
-        ])
-      };
-
-      const optimizationResult = await window.electronAPI.optimizeCutting(payloadConfig);
-      if (!optimizationResult.success || !optimizationResult.result) {
-        throw new Error(optimizationResult.error || 'Não foi possível calcular o corte.');
-      }
-      if (!optimizationResult.result.pieces_placed.length) {
-        throw new Error('Não foi encontrado um encaixe para as peças.');
-      }
-      setResult(optimizationResult);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro desconhecido');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleSaveConfig = async () => {
-    try {
-      if (!window.electronAPI) {
-        alert('Esta aplicação deve ser executada no Electron');
-        return;
-      }
-
-      const configToSaveMm: CuttingConfig = {
-        ...config,
-        stock_width: cmToMm(config.stock_width),
-        stock_height: config.stock_height > 0 ? cmToMm(config.stock_height) : 0,
-        pieces: config.pieces.map(([w, h, q, rot, desc]) => [
-          cmToMm(w),
-          cmToMm(h),
-          Math.max(0, Math.floor(q || 0)),
-          rot,
-          desc
-        ])
-      };
-
-      const saveResult = await window.electronAPI.saveConfig(configToSaveMm);
-      if (saveResult.success) {
-        alert(`Configuração salva em: ${saveResult.filePath}`);
-      } else {
-        alert(`Erro ao salvar: ${saveResult.error}`);
-      }
-    } catch (err) {
-      alert(`Erro ao salvar configuração: ${err}`);
-    }
-  };
-
-  const handleLoadConfig = async () => {
-    try {
-      if (!window.electronAPI) {
-        alert('Esta aplicação deve ser executada no Electron');
-        return;
-      }
-      
-      const loadResult = await window.electronAPI.loadConfig();
-      if (loadResult.success) {
-        const loaded = loadResult.config as CuttingConfig;
-        setConfig({
-          ...loaded,
-          optimization_mode: loaded.optimization_mode || 'refined',
-          time_limit: loaded.time_limit || 60,
-          stock_width: mmToCm(loaded.stock_width),
-          stock_height: loaded.stock_height > 0 ? mmToCm(loaded.stock_height) : 0,
-          pieces: loaded.pieces.map(([w, h, q, rot, desc]) => [
-            mmToCm(w),
-            mmToCm(h),
-            q,
-            rot ?? true,
-            desc || 'Peça sem descrição'
-          ])
+  useEffect(() => {
+    if (!hydrated) return;
+    let active = true;
+    const timer = setTimeout(() => {
+      writeRecovery(recovery)
+        .then(() => {
+          if (active) setRecoveryStatus('Recuperação automática atualizada');
+        })
+        .catch(() => {
+          if (active)
+            setRecoveryStatus('Não foi possível atualizar a recuperação');
         });
-        alert(`Configuração carregada de: ${loadResult.filePath}`);
-      } else {
-        alert(`Erro ao carregar: ${loadResult.error}`);
+    }, 500);
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+    // The recovery snapshot changes with every relevant workspace state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    hydrated,
+    project,
+    result,
+    calculatedSignature,
+    savedSignature,
+    filePath,
+    panelWidth,
+  ]);
+  useEffect(() => {
+    window.electronAPI?.setDocumentState?.({
+      dirty,
+      busy: loading,
+      name: project.name,
+    });
+  }, [dirty, loading, project.name]);
+  useEffect(() => {
+    if (!loading) return;
+    const start = Date.now();
+    setElapsed(0);
+    const timer = setInterval(
+      () => setElapsed((Date.now() - start) / 1000),
+      250
+    );
+    return () => clearInterval(timer);
+  }, [loading]);
+  useEffect(() => {
+    if (!notice) return;
+    const timer = setTimeout(() => setNotice(''), 6000);
+    return () => clearTimeout(timer);
+  }, [notice]);
+  useEffect(() => {
+    window.electronAPI
+      ?.getRecentProjects?.()
+      .then(setRecent)
+      .catch(() => setRecent([]));
+    const offAction = window.electronAPI?.onMenuAction?.((action: string) =>
+      live.current.command(action)
+    );
+    const offProgress = window.electronAPI?.onOptimizationProgress?.(
+      (data: { jobId: string; phase: string }) => {
+        if (data.jobId === activeJob.current) setPhase(data.phase);
       }
+    );
+    const key = (e: KeyboardEvent) => {
+      if (!window.electronAPI?.onMenuAction && (e.ctrlKey || e.metaKey)) {
+        const actions: Record<string, string> = {
+          s: 'save',
+          o: 'open',
+          n: 'new',
+          Enter: 'optimize',
+        };
+        if (actions[e.key]) {
+          e.preventDefault();
+          live.current.command(actions[e.key]);
+        }
+      }
+      if (e.key === 'Escape') setExportOpen(false);
+    };
+    document.addEventListener('keydown', key);
+    return () => {
+      offAction?.();
+      offProgress?.();
+      document.removeEventListener('keydown', key);
+    };
+  }, []);
+  useEffect(() => {
+    if (!pending) return;
+    const previous = document.activeElement as HTMLElement | null;
+    const dialog = document.querySelector<HTMLElement>('.confirm-dialog');
+    const trap = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setPending(null);
+        return;
+      }
+      if (e.key !== 'Tab' || !dialog) return;
+      const controls = Array.from(
+        dialog.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')
+      );
+      const first = controls[0],
+        last = controls[controls.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last?.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first?.focus();
+      }
+    };
+    document.addEventListener('keydown', trap);
+    return () => {
+      document.removeEventListener('keydown', trap);
+      previous?.focus();
+    };
+  }, [pending]);
+  const save = async () => {
+    if (fileBusy || !hydrated) return false;
+    if (invalid) {
+      setError('Corrija os campos destacados antes de salvar.');
+      return false;
+    }
+    if (!window.electronAPI) {
+      setError('Abra o aplicativo desktop para salvar um arquivo.');
+      return false;
+    }
+    setFileBusy(true);
+    try {
+      const savingProject = project;
+      const saved = await window.electronAPI.saveConfig(
+        toConfig(savingProject),
+        filePath || undefined
+      );
+      if (saved.canceled) return false;
+      if (!saved.success) throw new Error(saved.error);
+      live.current.recovery = {
+        ...live.current.recovery,
+        filePath: saved.filePath,
+        savedSignature: signature(savingProject),
+      };
+      setFilePath(saved.filePath);
+      setSavedSignature(signature(savingProject));
+      setNotice('Projeto salvo.');
+      setError('');
+      window.electronAPI
+        .getRecentProjects?.()
+        .then(setRecent)
+        .catch(() => setRecent([]));
+      return true;
     } catch (err) {
-      alert(`Erro ao carregar configuração: ${err}`);
+      setError(`Não foi possível salvar: ${message(err)}`);
+      return false;
+    } finally {
+      setFileBusy(false);
     }
   };
-
-  const handleExportResults = async () => {
-    if (!result) {
-      alert('Nenhum resultado para exportar');
+  const load = async (path?: string) => {
+    if (!window.electronAPI) return;
+    setFileBusy(true);
+    try {
+      const loaded = await window.electronAPI.loadConfig(path);
+      if (loaded.canceled) return;
+      if (!loaded.success) throw new Error(loaded.error);
+      const next = fromConfig(loaded.config);
+      setProject(next);
+      setSavedSignature(signature(next));
+      setFilePath(loaded.filePath);
+      setResult(null);
+      setCalculatedSignature('');
+      setRemoved(null);
+      setError('');
+      setNotice('Projeto aberto.');
+      window.electronAPI
+        .getRecentProjects?.()
+        .then(setRecent)
+        .catch(() => setRecent([]));
+    } catch (err) {
+      setError(`Não foi possível abrir: ${message(err)}`);
+    } finally {
+      setFileBusy(false);
+    }
+  };
+  const cancel = async () => {
+    if (!activeJob.current) return;
+    if (!window.electronAPI?.cancelOptimization) {
+      setError('O cancelamento não está disponível nesta versão.');
       return;
     }
-
+    setCanceling(true);
     try {
-      if (!window.electronAPI) {
-        alert('Esta aplicação deve ser executada no Electron');
-        return;
-      }
-      
-      const exportResult = await window.electronAPI.exportResults(result);
-      if (exportResult.success) {
-        alert(`Resultados exportados para: ${exportResult.filePath}`);
-      } else {
-        alert(`Erro ao exportar: ${exportResult.error}`);
-      }
+      const stopped = await window.electronAPI.cancelOptimization(
+        activeJob.current
+      );
+      if (!stopped.success) setCanceling(false);
     } catch (err) {
-      alert(`Erro ao exportar resultados: ${err}`);
+      setCanceling(false);
+      setError(`Não foi possível cancelar: ${message(err)}`);
     }
   };
-
-  const addPiece = () => {
-    setConfig(prev => ({
-      ...prev,
-      pieces: [...prev.pieces, [100, 100, 1, true, "Nova Peça"]] // [width, height, quantity, allow_rotation, description]
-    }));
+  const optimize = async () => {
+    if (loading || fileBusy) return;
+    if (invalid) {
+      setError('Corrija os campos destacados antes de otimizar.');
+      return;
+    }
+    if (!window.electronAPI) {
+      setError('Execute o aplicativo desktop para calcular o corte.');
+      return;
+    }
+    const snapshot = project;
+    const jobId = newId();
+    activeJob.current = jobId;
+    setLoading(true);
+    setCanceling(false);
+    setPhase('Preparando o motor de corte');
+    setRunLimit(snapshot.timeLimit);
+    setError('');
+    try {
+      const next: CutResult = await window.electronAPI.optimizeCutting(
+        toConfig(snapshot),
+        jobId
+      );
+      if (next.canceled) {
+        setNotice('Cálculo cancelado. O plano anterior foi mantido.');
+        return;
+      }
+      if (!next.success || !next.result?.pieces_placed?.length)
+        throw new Error(
+          next.error || 'Não foi encontrado um encaixe para as peças.'
+        );
+      setResult(next);
+      setCalculatedSignature(cutSignature(snapshot));
+      setNotice('Plano de corte atualizado.');
+    } catch (err) {
+      setError(message(err));
+    } finally {
+      activeJob.current = '';
+      setLoading(false);
+      setCanceling(false);
+    }
   };
-
-  const removePiece = (index: number) => {
-    setConfig(prev => ({
-      ...prev,
-      pieces: prev.pieces.filter((_, i) => i !== index)
-    }));
+  const perform = async (action: 'new' | 'open' | 'close', path?: string) => {
+    if (action === 'new') {
+      const next = newProject();
+      setProject(next);
+      setSavedSignature(signature(next));
+      setFilePath('');
+      setResult(null);
+      setCalculatedSignature('');
+      setRemoved(null);
+      setError('');
+    }
+    if (action === 'open') await load(path);
+    if (action === 'close') {
+      if (loading) await cancel();
+      try {
+        await writeRecovery(live.current.recovery);
+        await window.electronAPI?.closeWindow?.();
+      } catch (err) {
+        setError(`Não foi possível salvar a recuperação: ${message(err)}`);
+      }
+    }
   };
-
-  const updatePiece = (index: number, field: number, value: number | boolean | string) => {
-    setConfig(prev => ({
-      ...prev,
-      pieces: prev.pieces.map((piece, i) => 
-        i === index ? [
-          field === 0 ? value as number : piece[0],
-          field === 1 ? value as number : piece[1],
-          field === 2 ? value as number : piece[2],
-          field === 3 ? value as boolean : piece[3],
-          field === 4 ? value as string : piece[4]
-        ] as [number, number, number, boolean, string] : piece
-      )
-    }));
+  const request = (action: 'new' | 'open' | 'close', path?: string) => {
+    if (fileBusy || !hydrated || (loading && action !== 'close')) return;
+    if (dirty || (loading && action === 'close')) {
+      setPending(action);
+      setPendingPath(path);
+    } else void perform(action, path);
   };
-
+  const command = (action: string) => {
+    if (pending) return;
+    if (action === 'save') void save();
+    else if (action === 'optimize') void optimize();
+    else if (action === 'export') {
+      if (result) setExportOpen(true);
+    } else if (action === 'new' || action === 'open' || action === 'close')
+      request(action);
+  };
+  live.current = { project, recovery, command };
+  const exportFile = async (format: 'svg' | 'csv' | 'json') => {
+    setExportOpen(false);
+    if (!result || !window.electronAPI) return;
+    try {
+      const saved =
+        format === 'svg'
+          ? await window.electronAPI.saveSvg(
+              generateCuttingSvg(
+                result.result.stock_dimensions.width,
+                result.result.stock_dimensions.height,
+                result.result.pieces_placed
+              )
+            )
+          : await window.electronAPI.exportResults(result, format);
+      if (saved.canceled) return;
+      if (!saved.success) throw new Error(saved.error);
+      setLastExport(saved.filePath || '');
+      setNotice(`Arquivo ${format.toUpperCase()} exportado.`);
+    } catch (err) {
+      setError(`Não foi possível exportar: ${message(err)}`);
+    }
+  };
+  const field = (
+    key: 'width' | 'height' | 'timeLimit',
+    label: string,
+    placeholder?: string
+  ) => (
+    <label className="field">
+      {label}
+      <input
+        aria-label={label}
+        aria-invalid={!!errors[key]}
+        type="number"
+        step={key === 'timeLimit' ? '1' : '0.1'}
+        min={key === 'timeLimit' ? 1 : 0}
+        placeholder={placeholder}
+        value={project[key]}
+        onChange={e => setProject({ ...project, [key]: e.target.value })}
+      />
+      {errors[key] && <small className="field-error">{errors[key]}</small>}
+    </label>
+  );
+  const pieceCount = project.pieces.reduce(
+    (total, p) => total + (Number(p.quantity) || 0),
+    0
+  );
+  const resultCount = result?.result.pieces_placed.length || 0;
+  const consumedEfficiency =
+    result?.layout_metrics?.consumed_area_efficiency ??
+    result?.efficiency_metrics?.area_efficiency ??
+    0;
+  const resize = (e: React.PointerEvent) => {
+    e.currentTarget.setPointerCapture(e.pointerId);
+    const move = (event: PointerEvent) =>
+      setPanelWidth(
+        Math.max(
+          460,
+          Math.min(
+            800,
+            (workspace.current?.clientWidth || 1200) - 440,
+            event.clientX -
+              (workspace.current?.getBoundingClientRect().left || 0)
+          )
+        )
+      );
+    const end = () => {
+      document.removeEventListener('pointermove', move);
+      document.removeEventListener('pointerup', end);
+      document.removeEventListener('pointercancel', end);
+    };
+    document.addEventListener('pointermove', move);
+    document.addEventListener('pointerup', end);
+    document.addEventListener('pointercancel', end);
+  };
   return (
     <div className="App">
-      <header className="App-header">
-        <h1>🔧 Otimização de Corte Bidimensional</h1>
-        <p>Sistema de otimização de corte para minimizar desperdício</p>
-      </header>
-
-      <main className="App-main">
-        <div className="config-section">
-          <h2>📋 Configuração do Problema</h2>
-          
-          <div className="stock-config">
-            <h3>Material Base</h3>
-            <div className="input-group">
-              <label>
-                Largura (cm):
-                <input
-                  type="number"
-                  value={config.stock_width}
-                  onChange={(e) => setConfig(prev => ({ ...prev, stock_width: parseFloat(e.target.value) || 0 }))}
-                />
-              </label>
-            </div>
-            <small>A altura do material será definida automaticamente após posicionar as peças.</small>
-          </div>
-
-          <div className="pieces-config">
-            <h3>Peças a Cortar</h3>
-            {config.pieces.map((piece, index) => (
-              <div key={index} className="piece-input">
-                <span>Peça {index + 1}:</span>
-                <input
-                  type="number"
-                  placeholder="Largura"
-                  value={piece[0]}
-                  onChange={(e) => updatePiece(index, 0, parseFloat(e.target.value) || 0)}
-                />
-                <span>x</span>
-                <input
-                  type="number"
-                  placeholder="Altura"
-                  value={piece[1]}
-                  onChange={(e) => updatePiece(index, 1, parseFloat(e.target.value) || 0)}
-                />
-                <span>cm</span>
-                <input
-                  type="number"
-                  placeholder="Qtd"
-                  value={piece[2]}
-                  onChange={(e) => updatePiece(index, 2, parseInt(e.target.value) || 0)}
-                />
-                <span>unidades</span>
-                <label className="rotation-checkbox">
-                  <input
-                    type="checkbox"
-                    checked={piece[3]}
-                    onChange={(e) => updatePiece(index, 3, e.target.checked)}
-                  />
-                  🔄 Rotação
-                </label>
-                <input
-                  type="text"
-                  placeholder="Descrição"
-                  value={piece[4]}
-                  onChange={(e) => updatePiece(index, 4, e.target.value)}
-                  className="description-input"
-                />
-                <button onClick={() => removePiece(index)} className="remove-btn">❌</button>
-              </div>
-            ))}
-            <button onClick={addPiece} className="add-btn">➕ Adicionar Peça</button>
-          </div>
-
-          <div className="options-config">
-            <h3>Opções</h3>
-            <label>
-              Modo de otimização:
-              <select
-                value={config.optimization_mode}
-                onChange={(e) => setConfig(prev => ({ ...prev, optimization_mode: e.target.value as 'fast' | 'refined' }))}
-              >
-                <option value="fast">Rápido</option>
-                <option value="refined">Refinado</option>
-              </select>
-            </label>
-            <label>
-              <input
-                type="checkbox"
-                checked={true}
-                disabled
-              />
-              Rotação por peça (ver configuração individual)
-            </label>
-          </div>
-
-          <div className="actions">
-            <button onClick={handleSaveConfig} className="btn-secondary">💾 Salvar Config</button>
-            <button onClick={handleLoadConfig} className="btn-secondary">📂 Carregar Config</button>
-            <button onClick={handleOptimize} disabled={loading} className="btn-primary">
-              {loading ? '🔄 Otimizando...' : '🚀 Otimizar Corte'}
-            </button>
+      <header className="app-toolbar">
+        <div className="app-brand">
+          <span className="brand-icon">
+            <Icon name="cut" size={23} />
+          </span>
+          <div>
+            <strong>Cutting Optimization</strong>
+            <span>Planejamento de corte</span>
           </div>
         </div>
-
-        {error && (
-          <div className="error-section">
-            <h3>❌ Erro</h3>
-            <p>{error}</p>
+        <div className="toolbar-actions">
+          <button
+            disabled={loading || fileBusy || !hydrated}
+            onClick={() => request('new')}
+          >
+            <Icon name="plus" />
+            Novo
+          </button>
+          <button
+            disabled={loading || fileBusy || !hydrated}
+            onClick={() => request('open')}
+          >
+            <Icon name="folder" />
+            Abrir
+          </button>
+          <button disabled={fileBusy || !hydrated} onClick={() => void save()}>
+            <Icon name="save" />
+            Salvar
+          </button>
+          <div className="export-menu">
+            <button
+              disabled={!result || fileBusy}
+              aria-expanded={exportOpen}
+              onClick={() => setExportOpen(!exportOpen)}
+            >
+              <Icon name="export" />
+              Exportar
+              <Icon name="chevron" size={14} />
+            </button>
+            {exportOpen && (
+              <div
+                className="dropdown"
+                role="group"
+                aria-label="Formatos de exportação"
+              >
+                {(['svg', 'csv', 'json'] as const).map(f => (
+                  <button key={f} onClick={() => void exportFile(f)}>
+                    {f.toUpperCase()}
+                    <small>
+                      {f === 'svg'
+                        ? 'Plano em escala real'
+                        : f === 'csv'
+                          ? 'Tabela de peças'
+                          : 'Dados completos'}
+                    </small>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
-        )}
-
-        {result && (
-          <div className="result-section">
-            <h2>✅ Resultados da Otimização</h2>
-            
-            <div className="result-summary">
-              <div className="result-item">
-                <strong>Algoritmo:</strong> {result.algorithm}
-              </div>
-              <div className="result-item">
-                <strong>Peças cortadas:</strong> {result.result.pieces_placed.length}
-              </div>
-              <div className="result-item">
-                <strong>Área utilizada:</strong> {mm2ToCm2(result.result.used_area).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} cm²
-              </div>
-              <div className="result-item">
-                <strong>Desperdício:</strong> {result.result.waste_percentage.toFixed(2)}%
-              </div>
-              <div className="result-item">
-                <strong>Tempo de execução:</strong> {result.result.execution_time.toFixed(2)}s
-              </div>
-              <div className="result-item">
-                <strong>Comprimento mínimo comprovado:</strong> {result.result.is_optimal ? 'Sim' : 'Não comprovado'}
-              </div>
-              <div className="result-item">
-                <strong>Eficiência de área:</strong> {result.efficiency_metrics?.area_efficiency?.toFixed(1)}%
-              </div>
-              {result.layout_metrics && (
-                <div className="result-item">
-                  <strong>Comprimento usado:</strong> {mmToCm(result.layout_metrics.used_height).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} cm
-                </div>
-              )}
-              {result.layout_metrics && (
-                <div className="result-item">
-                  <strong>Altura sugerida do material:</strong> {mmToCm(result.layout_metrics.suggested_stock_height).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} cm
-                </div>
-              )}
-              {result.layout_metrics?.consumed_area_efficiency !== undefined && (
-                <div className="result-item">
-                  <strong>Aproveitamento do material consumido:</strong> {result.layout_metrics.consumed_area_efficiency.toFixed(1)}%
-                </div>
-              )}
+        </div>
+      </header>
+      {notice && (
+        <div className="toast" role="status">
+          <Icon name="check" />
+          {notice}
+          {lastExport && notice.includes('exportado') && (
+            <button
+              onClick={() =>
+                window.electronAPI?.showExportInFolder?.(lastExport)
+              }
+            >
+              Abrir pasta
+            </button>
+          )}
+          <button aria-label="Fechar aviso" onClick={() => setNotice('')}>
+            <Icon name="close" size={15} />
+          </button>
+        </div>
+      )}
+      {error && (
+        <div className="error-banner" role="alert">
+          <strong>Não foi possível concluir.</strong> {error}
+          <button aria-label="Fechar erro" onClick={() => setError('')}>
+            <Icon name="close" />
+          </button>
+        </div>
+      )}
+      <main
+        ref={workspace}
+        className="workspace"
+        style={{ '--panel-width': `${panelWidth}px` } as React.CSSProperties}
+      >
+        <section className="config-panel" aria-label="Configuração do corte">
+          <div className="panel-heading">
+            <span className="eyebrow">PROJETO</span>
+            <input
+              aria-label="Nome do projeto"
+              className="project-name"
+              value={project.name}
+              onChange={e => setProject({ ...project, name: e.target.value })}
+            />
+            <span className="file-state">
+              {dirty
+                ? 'Alterações não salvas'
+                : filePath
+                  ? 'Arquivo salvo'
+                  : 'Novo projeto'}
+            </span>
+          </div>
+          <div className="material-section">
+            <h2>Material</h2>
+            <div className="material-fields">
+              {field('width', 'Largura (cm)')}
+              {field('height', 'Altura (cm)', 'Automática')}
             </div>
-
-            <div className="result-actions">
-              <button onClick={handleExportResults} className="btn-secondary">
-                📤 Exportar Resultados
+            <p className="hint">
+              Deixe a altura vazia para calcular o comprimento do rolo.
+            </p>
+          </div>
+          <div className="section-heading">
+            <div>
+              <h2>Peças a cortar</h2>
+              <span>
+                {project.pieces.length} tipos · {pieceCount} unidades
+              </span>
+            </div>
+            <button
+              onClick={() =>
+                setProject({
+                  ...project,
+                  pieces: [...project.pieces, newPiece()],
+                })
+              }
+            >
+              <Icon name="plus" />
+              Adicionar
+            </button>
+          </div>
+          <div className="pieces-table-wrap">
+            <table className="pieces-table">
+              <thead>
+                <tr>
+                  <th>Peça</th>
+                  <th>
+                    Larg.<small>cm</small>
+                  </th>
+                  <th>
+                    Alt.<small>cm</small>
+                  </th>
+                  <th>Qtd.</th>
+                  <th>Girar</th>
+                  <th>
+                    <span className="sr-only">Ações</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {project.pieces.map((p, index) => (
+                  <tr key={p.id}>
+                    {(['name', 'width', 'height', 'quantity'] as const).map(
+                      key => (
+                        <td key={key}>
+                          <input
+                            aria-label={`${key === 'name' ? 'Nome' : key === 'width' ? 'Largura' : key === 'height' ? 'Altura' : 'Quantidade'} da peça ${index + 1}`}
+                            aria-invalid={!!errors[`${p.id}.${key}`]}
+                            type={key === 'name' ? 'text' : 'number'}
+                            step={key === 'quantity' ? '1' : '0.1'}
+                            min={key === 'name' ? undefined : 0}
+                            value={p[key]}
+                            onChange={e =>
+                              setProject({
+                                ...project,
+                                pieces: project.pieces.map(row =>
+                                  row.id === p.id
+                                    ? { ...row, [key]: e.target.value }
+                                    : row
+                                ),
+                              })
+                            }
+                          />
+                          {errors[`${p.id}.${key}`] && (
+                            <small className="field-error">
+                              {errors[`${p.id}.${key}`]}
+                            </small>
+                          )}
+                        </td>
+                      )
+                    )}
+                    <td className="rotation-cell">
+                      <input
+                        aria-label={`Permitir rotação da peça ${index + 1}`}
+                        type="checkbox"
+                        checked={p.rotation}
+                        onChange={e =>
+                          setProject({
+                            ...project,
+                            pieces: project.pieces.map(row =>
+                              row.id === p.id
+                                ? { ...row, rotation: e.target.checked }
+                                : row
+                            ),
+                          })
+                        }
+                      />
+                    </td>
+                    <td>
+                      <div className="row-actions">
+                        <button
+                          title="Duplicar peça"
+                          aria-label={`Duplicar peça ${index + 1}`}
+                          onClick={() =>
+                            setProject({
+                              ...project,
+                              pieces: [
+                                ...project.pieces.slice(0, index + 1),
+                                { ...p, id: newId() },
+                                ...project.pieces.slice(index + 1),
+                              ],
+                            })
+                          }
+                        >
+                          <Icon name="copy" size={15} />
+                        </button>
+                        <button
+                          title="Remover peça"
+                          aria-label={`Remover peça ${index + 1}`}
+                          onClick={() => {
+                            setRemoved({ row: p, index });
+                            setProject({
+                              ...project,
+                              pieces: project.pieces.filter(
+                                row => row.id !== p.id
+                              ),
+                            });
+                          }}
+                        >
+                          <Icon name="trash" size={15} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {errors.pieces && <p className="field-error">{errors.pieces}</p>}
+          {removed && (
+            <div className="undo-notice">
+              Peça removida.
+              <button
+                onClick={() => {
+                  setProject({
+                    ...project,
+                    pieces: [
+                      ...project.pieces.slice(0, removed.index),
+                      removed.row,
+                      ...project.pieces.slice(removed.index),
+                    ],
+                  });
+                  setRemoved(null);
+                }}
+              >
+                <Icon name="undo" size={14} />
+                Desfazer
               </button>
             </div>
-
-            {result.result.pieces_placed.length > 0 && (
+          )}
+          <details className="advanced">
+            <summary>Opções de otimização</summary>
+            <div className="material-fields">
+              <label className="field">
+                Modo
+                <select
+                  value={project.mode}
+                  onChange={e =>
+                    setProject({
+                      ...project,
+                      mode: e.target.value as Project['mode'],
+                    })
+                  }
+                >
+                  <option value="fast">Rápido</option>
+                  <option value="refined">Refinado</option>
+                </select>
+              </label>
+              {field('timeLimit', 'Tempo máximo (s)')}
+            </div>
+          </details>
+          <div className="optimize-footer">
+            {loading ? (
               <>
-                {/* Visualização do Corte */}
-                <CuttingVisualizer
-                  stockWidth={result.result.stock_dimensions.width}
-                  stockHeight={result.result.stock_dimensions.height}
-                  piecesPlaced={result.result.pieces_placed}
-                  showGrid={true}
-                  showDimensions={true}
-                />
-                
-                {/* Lista de Peças Colocadas */}
-                <div className="pieces-placed">
-                  <h3>🧩 Peças Colocadas</h3>
-                  <div className="pieces-grid">
-                    {result.result.pieces_placed.map((piece, index) => (
-                      <div key={index} className="piece-item">
-                        <strong>{piece.description || piece.id}</strong>
-                        <div>Posição: ({mmToCm(piece.x).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}, {mmToCm(piece.y).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}) cm</div>
-                        <div>Tamanho: {mmToCm(piece.width).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} x {mmToCm(piece.height).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} cm</div>
-                        <div>Área: {mm2ToCm2(piece.area).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} cm²</div>
-                      </div>
-                    ))}
+                <div className="progress-state" role="status">
+                  <span className="spinner" />
+                  <div>
+                    <strong>{canceling ? 'Cancelando…' : phase}</strong>
+                    <small>
+                      {elapsed.toFixed(1)} s decorridos · limite de busca{' '}
+                      {runLimit} s
+                    </small>
                   </div>
                 </div>
+                <button
+                  className="cancel-button"
+                  disabled={canceling}
+                  onClick={() => void cancel()}
+                >
+                  <Icon name="stop" />
+                  Cancelar
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  className="primary-button"
+                  disabled={!hydrated || fileBusy || invalid}
+                  onClick={() => void optimize()}
+                >
+                  <Icon name="play" />
+                  Otimizar corte
+                </button>
+                <small>Ctrl/Cmd + Enter</small>
               </>
             )}
           </div>
-        )}
+          {!!recent.length && (
+            <details className="recent-projects">
+              <summary>Projetos recentes</summary>
+              {recent.map(path => (
+                <button
+                  disabled={loading || fileBusy}
+                  key={path}
+                  title={path}
+                  onClick={() => request('open', path)}
+                >
+                  <Icon name="folder" size={15} />
+                  {path.split(/[\\/]/).pop()}
+                </button>
+              ))}
+            </details>
+          )}
+        </section>
+        <div
+          role="separator"
+          aria-label="Largura do painel de peças"
+          aria-orientation="vertical"
+          aria-valuemin={460}
+          aria-valuemax={800}
+          aria-valuenow={panelWidth}
+          tabIndex={0}
+          className="panel-divider"
+          onPointerDown={resize}
+          onKeyDown={e => {
+            if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+              e.preventDefault();
+              setPanelWidth(
+                Math.max(
+                  460,
+                  Math.min(800, panelWidth + (e.key === 'ArrowLeft' ? -20 : 20))
+                )
+              );
+            }
+          }}
+        />
+        <section className="plan-panel" aria-label="Plano de corte">
+          <div className="plan-heading">
+            <div>
+              <span className="eyebrow">RESULTADO</span>
+              <h1>Plano de corte</h1>
+            </div>
+            <span className={`result-badge ${stale ? 'stale' : ''}`}>
+              {loading
+                ? 'Calculando'
+                : stale
+                  ? 'Precisa recalcular'
+                  : result
+                    ? 'Atualizado'
+                    : 'Aguardando cálculo'}
+            </span>
+          </div>
+          {stale && (
+            <div className="stale-banner">
+              O cadastro mudou. Este plano corresponde ao cálculo anterior;
+              otimize novamente para atualizar.
+            </div>
+          )}
+          {result ? (
+            <>
+              <div className="metric-grid">
+                <div>
+                  <span>Comprimento usado</span>
+                  <strong>
+                    {format(
+                      (result.layout_metrics?.used_height ||
+                        result.result.stock_dimensions.height) / 10
+                    )}
+                    <small> cm</small>
+                  </strong>
+                </div>
+                <div>
+                  <span>Aproveitamento</span>
+                  <strong>
+                    {format(consumedEfficiency)}
+                    <small>%</small>
+                  </strong>
+                </div>
+                <div>
+                  <span>Desperdício consumido</span>
+                  <strong>
+                    {format(100 - consumedEfficiency)}
+                    <small>%</small>
+                  </strong>
+                </div>
+                <div>
+                  <span>Peças posicionadas</span>
+                  <strong>{resultCount}</strong>
+                </div>
+              </div>
+              <CuttingVisualizer
+                stockWidth={result.result.stock_dimensions.width}
+                stockHeight={result.result.stock_dimensions.height}
+                piecesPlaced={result.result.pieces_placed}
+              />
+              <details className="technical-details">
+                <summary>Detalhes do resultado</summary>
+                <dl>
+                  <div>
+                    <dt>Tempo de cálculo</dt>
+                    <dd>{result.result.execution_time.toFixed(2)} s</dd>
+                  </div>
+                  <div>
+                    <dt>Comprimento mínimo comprovado</dt>
+                    <dd>
+                      {result.result.is_optimal ? 'Sim' : 'Não comprovado'}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Área das peças</dt>
+                    <dd>{format(result.result.used_area / 100)} cm²</dd>
+                  </div>
+                  <div>
+                    <dt>Desperdício da chapa inteira</dt>
+                    <dd>{format(result.result.waste_percentage)}%</dd>
+                  </div>
+                </dl>
+              </details>
+            </>
+          ) : (
+            <div className="empty-plan">
+              <div className="empty-illustration">
+                <span />
+                <span />
+                <span />
+                <span />
+              </div>
+              <h2>Seu próximo corte começa aqui</h2>
+              <p>
+                Defina o material, cadastre as peças e clique em{' '}
+                <strong>Otimizar corte</strong>. O plano e o aproveitamento
+                aparecerão neste espaço.
+              </p>
+              <span>Medidas em centímetros · Exportação SVG em escala 1:1</span>
+            </div>
+          )}
+        </section>
       </main>
+      <footer className="status-bar">
+        <span>{recoveryStatus || 'Recuperação automática ativa'}</span>
+        <span title={filePath}>
+          {filePath ? filePath.split(/[\\/]/).pop() : 'Projeto sem arquivo'}
+          {dirty ? ' · não salvo' : ''}
+        </span>
+      </footer>
+      {pending && (
+        <div className="modal-backdrop">
+          <div
+            className="confirm-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="confirm-title"
+          >
+            <h2 id="confirm-title">
+              {loading ? 'Há um cálculo em andamento' : 'Salvar alterações?'}
+            </h2>
+            <p>
+              {loading
+                ? 'Ao fechar, o cálculo será interrompido. Seu cadastro será mantido na recuperação automática.'
+                : 'Seu projeto tem alterações que ainda não foram salvas em arquivo.'}
+            </p>
+            <div className="dialog-actions">
+              <button autoFocus onClick={() => setPending(null)}>
+                Voltar
+              </button>
+              <button
+                disabled={fileBusy}
+                onClick={() => {
+                  const action = pending;
+                  setPending(null);
+                  void perform(action, pendingPath);
+                }}
+              >
+                {pending === 'close'
+                  ? 'Fechar sem salvar'
+                  : 'Continuar sem salvar'}
+              </button>
+              {dirty && (
+                <button
+                  className="primary-button"
+                  disabled={fileBusy}
+                  onClick={async () => {
+                    if (await save()) {
+                      const action = pending;
+                      setPending(null);
+                      void perform(action, pendingPath);
+                    }
+                  }}
+                >
+                  Salvar e continuar
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
-
-export default App;
