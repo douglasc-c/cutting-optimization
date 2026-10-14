@@ -25,7 +25,7 @@ function fixture() {
   const fetchApi = async (url, options) => {
     calls.push({ url, options });
     if (mode === 'offline') throw Error('offline');
-    if (url.endsWith('/api/auth/verify-code'))
+    if (url.endsWith('/api/auth/login') || url.endsWith('/api/auth/register'))
       return Response.json({ token: 'a'.repeat(64) });
     if (url.endsWith('/api/auth/logout')) {
       revoked = true;
@@ -68,7 +68,10 @@ function fixture() {
 test('desktop stores encrypted token, never exposes it to the renderer and persists across restarts', async () => {
   const f = fixture();
   try {
-    const state = await f.client.verifyCode('id', '12345678');
+    const state = await f.client.login(
+      'user@example.com',
+      'uma senha longa de teste'
+    );
     assert.equal(state.allowed, true);
     assert.equal(state.token, undefined);
     const stored = fs.readFileSync(
@@ -91,7 +94,7 @@ test('desktop stores encrypted token, never exposes it to the renderer and persi
 test('offline grace expires after seven days and clock rollback is denied', async () => {
   const f = fixture();
   try {
-    await f.client.verifyCode('id', '12345678');
+    await f.client.login('user@example.com', 'uma senha longa de teste');
     f.setMode('offline');
     assert.equal((await f.client.getState()).offline, true);
     f.setTime(10000000 - 1);
@@ -105,7 +108,7 @@ test('offline grace expires after seven days and clock rollback is denied', asyn
 test('blocked account and old version cannot use cached authorization', async () => {
   const f = fixture();
   try {
-    await f.client.verifyCode('id', '12345678');
+    await f.client.login('user@example.com', 'uma senha longa de teste');
     f.setMode('old');
     await assert.rejects(() => f.client.assertAllowed(), /Atualize/);
     f.setMode('offline');
@@ -123,7 +126,7 @@ test('blocked account and old version cannot use cached authorization', async ()
 test('logout clears local credentials even offline and missing encryption never writes plaintext', async () => {
   const f = fixture();
   try {
-    await f.client.verifyCode('id', '12345678');
+    await f.client.login('user@example.com', 'uma senha longa de teste');
     f.setMode('offline');
     await f.client.logout();
     assert.equal((await f.client.getState()).authenticated, false);
@@ -136,7 +139,7 @@ test('logout clears local credentials even offline and missing encryption never 
       ...f.options,
       safeStorage: { isEncryptionAvailable: () => false },
     });
-    await client.verifyCode('id', '12345678');
+    await client.login('user@example.com', 'uma senha longa de teste');
     assert.equal(
       fs.existsSync(path.join(f.directory, 'account-session.enc')),
       false
@@ -172,7 +175,7 @@ test('packaged app requires configured HTTPS account service; local development 
 test('cached access is bound to the service origin and app version', async () => {
   const f = fixture();
   try {
-    await f.client.verifyCode('id', '12345678');
+    await f.client.login('user@example.com', 'uma senha longa de teste');
     f.setMode('offline');
     const changed = createCloudClient({
       ...f.options,
@@ -183,5 +186,30 @@ test('cached access is bound to the service origin and app version', async () =>
     assert.equal((await old.getState()).allowed, false);
   } finally {
     f.clean();
+  }
+});
+
+test('password registration sends credentials only to authentication and never persists the password', async () => {
+  const f = fixture();
+  try {
+    const password = 'uma senha longa de teste';
+    const state = await f.client.register(
+      'user@example.com',
+      password,
+      'Douglas'
+    );
+    assert.equal(state.authenticated, true);
+    assert.equal(f.calls[0].url.endsWith('/api/auth/register'), true);
+    assert.equal(JSON.parse(f.calls[0].options.body).password, password);
+    assert.equal(JSON.stringify(state).includes(password), false);
+    for (const file of fs.readdirSync(f.directory)) {
+      const encrypted = fs.readFileSync(path.join(f.directory, file));
+      const plain = Buffer.from(encrypted)
+        .map(c => c ^ 123)
+        .toString();
+      assert.equal(plain.includes(password), false);
+    }
+  } finally {
+    fs.rmSync(f.directory, { recursive: true, force: true });
   }
 });

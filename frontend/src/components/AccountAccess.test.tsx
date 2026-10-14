@@ -4,41 +4,74 @@ import AccountAccess from './AccountAccess';
 afterEach(() => {
   delete window.electronAPI;
 });
-test('email code signs in and enables access only after server validation', async () => {
+test('password login enables access only after server validation', async () => {
   const allowed = jest.fn();
   const api: any = {
     getAccountState: jest
       .fn()
       .mockResolvedValue({ enabled: true, configured: true, allowed: false }),
-    requestAccountCode: jest
-      .fn()
-      .mockResolvedValue({ challengeId: 'challenge' }),
-    verifyAccountCode: jest
-      .fn()
-      .mockResolvedValue({
-        enabled: true,
-        configured: true,
-        authenticated: true,
-        allowed: true,
-        user: { email: 'user@example.com' },
-      }),
+    loginAccount: jest.fn().mockResolvedValue({
+      enabled: true,
+      configured: true,
+      authenticated: true,
+      allowed: true,
+      user: { email: 'user@example.com' },
+    }),
   };
   window.electronAPI = api;
   render(<AccountAccess onAccessChanged={allowed} busy={false} />);
-  await screen.findByRole('button', { name: 'Receber código' });
+  await screen.findByRole('button', { name: 'Entrar' });
   expect(allowed).toHaveBeenCalledWith(false);
   fireEvent.change(screen.getByLabelText('E-mail'), {
     target: { value: 'user@example.com' },
   });
-  fireEvent.click(screen.getByRole('button', { name: 'Receber código' }));
-  const code = await screen.findByLabelText(
-    'Código enviado para user@example.com'
-  );
-  fireEvent.change(code, { target: { value: '12345678' } });
-  fireEvent.click(screen.getByRole('button', { name: 'Confirmar código' }));
+  fireEvent.change(screen.getByLabelText('Senha', { exact: true }), {
+    target: { value: 'uma senha longa de teste' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Entrar' }));
   await screen.findByText('user@example.com');
-  expect(api.verifyAccountCode).toHaveBeenCalledWith('challenge', '12345678');
+  expect(api.loginAccount).toHaveBeenCalledWith(
+    'user@example.com',
+    'uma senha longa de teste'
+  );
   expect(allowed).toHaveBeenLastCalledWith(true);
+});
+test('registration checks password confirmation before calling main process', async () => {
+  const api: any = {
+    getAccountState: jest
+      .fn()
+      .mockResolvedValue({ enabled: true, configured: true, allowed: false }),
+    registerAccount: jest.fn().mockResolvedValue({
+      authenticated: true,
+      allowed: true,
+      user: { email: 'user@example.com' },
+    }),
+  };
+  window.electronAPI = api;
+  render(<AccountAccess onAccessChanged={jest.fn()} busy={false} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Criar conta' }));
+  fireEvent.change(screen.getByLabelText('E-mail'), {
+    target: { value: 'user@example.com' },
+  });
+  fireEvent.change(screen.getByLabelText('Senha', { exact: true }), {
+    target: { value: 'uma senha longa de teste' },
+  });
+  fireEvent.change(screen.getByLabelText('Confirmar senha'), {
+    target: { value: 'outra senha longa de teste' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Cadastrar e entrar' }));
+  await screen.findByText('As senhas não coincidem.');
+  expect(api.registerAccount).not.toHaveBeenCalled();
+  fireEvent.change(screen.getByLabelText('Confirmar senha'), {
+    target: { value: 'uma senha longa de teste' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Cadastrar e entrar' }));
+  await screen.findByText('user@example.com');
+  expect(api.registerAccount).toHaveBeenCalledWith(
+    'user@example.com',
+    'uma senha longa de teste',
+    ''
+  );
 });
 test('required update keeps access denied and offers explicit download', async () => {
   const allowed = jest.fn(),
@@ -46,26 +79,22 @@ test('required update keeps access denied and offers explicit download', async (
       .fn()
       .mockResolvedValue({ enabled: true, phase: 'ready', version: '0.2.1' });
   const api: any = {
-    getAccountState: jest
-      .fn()
-      .mockResolvedValue({
-        enabled: true,
-        configured: true,
-        authenticated: true,
-        allowed: false,
-        user: { email: 'user@example.com' },
-        policy: { updateRequired: true, minimumVersion: '0.2.1' },
-      }),
+    getAccountState: jest.fn().mockResolvedValue({
+      enabled: true,
+      configured: true,
+      authenticated: true,
+      allowed: false,
+      user: { email: 'user@example.com' },
+      policy: { updateRequired: true, minimumVersion: '0.2.1' },
+    }),
     getUpdateState: jest
       .fn()
       .mockResolvedValue({ enabled: true, phase: 'idle' }),
-    checkUpdates: jest
-      .fn()
-      .mockResolvedValue({
-        enabled: true,
-        phase: 'available',
-        version: '0.2.1',
-      }),
+    checkUpdates: jest.fn().mockResolvedValue({
+      enabled: true,
+      phase: 'available',
+      version: '0.2.1',
+    }),
     downloadUpdate: download,
   };
   window.electronAPI = api;
@@ -81,26 +110,22 @@ test('required update keeps access denied and offers explicit download', async (
 test('logout denies further optimization without replacing the workspace', async () => {
   const allowed = jest.fn();
   window.electronAPI = {
-    getAccountState: jest
-      .fn()
-      .mockResolvedValue({
-        enabled: true,
-        configured: true,
-        authenticated: true,
-        allowed: true,
-        user: { email: 'user@example.com' },
-      }),
-    logoutAccount: jest
-      .fn()
-      .mockResolvedValue({
-        enabled: true,
-        configured: true,
-        authenticated: false,
-        allowed: false,
-      }),
+    getAccountState: jest.fn().mockResolvedValue({
+      enabled: true,
+      configured: true,
+      authenticated: true,
+      allowed: true,
+      user: { email: 'user@example.com' },
+    }),
+    logoutAccount: jest.fn().mockResolvedValue({
+      enabled: true,
+      configured: true,
+      authenticated: false,
+      allowed: false,
+    }),
   } as any;
   render(<AccountAccess onAccessChanged={allowed} busy={false} />);
   fireEvent.click(await screen.findByRole('button', { name: 'Sair da conta' }));
   await waitFor(() => expect(allowed).toHaveBeenLastCalledWith(false));
-  await screen.findByRole('button', { name: 'Receber código' });
+  await screen.findByRole('button', { name: 'Entrar' });
 });

@@ -38,8 +38,9 @@ export default function AccountAccess({
   const [update, setUpdate] = useState<UpdateState | null>(null);
   const [email, setEmail] = useState(''),
     [name, setName] = useState(''),
-    [code, setCode] = useState('');
-  const [challenge, setChallenge] = useState(''),
+    [password, setPassword] = useState(''),
+    [confirmation, setConfirmation] = useState('');
+  const [registering, setRegistering] = useState(false),
     [working, setWorking] = useState(false),
     [error, setError] = useState('');
   const refresh = useCallback(async () => {
@@ -113,7 +114,7 @@ export default function AccountAccess({
                   ? account.error
                   : 'Conta validada. Seus projetos permanecem neste computador.'
                 : account.error ||
-                  'Confirme seu e-mail com um código de acesso. Salvar e exportar projetos continua disponível.'}
+                  'Entre com e-mail e senha. Salvar e exportar projetos continua disponível.'}
           </p>
         </div>
         <div className="account-actions">
@@ -130,7 +131,8 @@ export default function AccountAccess({
                   )();
                   setAccount(state);
                   onAccessChanged(false);
-                  setChallenge('');
+                  setPassword('');
+                  setConfirmation('');
                 })
               }
             >
@@ -145,88 +147,98 @@ export default function AccountAccess({
           onSubmit={event => {
             event.preventDefault();
             void run(async () => {
-              if (!challenge) {
-                const result = await required(
-                  window.electronAPI?.requestAccountCode
-                )(email.trim(), name.trim());
-                if (result.error || !result.challengeId)
-                  throw new Error(
-                    result.error || 'Não foi possível enviar o código.'
+              if (registering && password !== confirmation)
+                throw new Error('As senhas não coincidem.');
+              const state = registering
+                ? await required(window.electronAPI?.registerAccount)(
+                    email.trim(),
+                    password,
+                    name.trim()
+                  )
+                : await required(window.electronAPI?.loginAccount)(
+                    email.trim(),
+                    password
                   );
-                setChallenge(result.challengeId);
-                setCode('');
-              } else {
-                const state = await required(
-                  window.electronAPI?.verifyAccountCode
-                )(challenge, code.trim());
-                if (!state.authenticated)
-                  throw new Error(
-                    state.error || 'Não foi possível confirmar o acesso.'
-                  );
-                setAccount(state);
-                onAccessChanged(state.allowed === true);
-                setChallenge('');
-              }
+              setPassword('');
+              setConfirmation('');
+              if (!state.authenticated)
+                throw new Error(state.error || 'Não foi possível entrar.');
+              setAccount(state);
+              onAccessChanged(state.allowed === true);
             });
           }}
         >
-          {!challenge ? (
-            <>
-              <label>
-                Nome (opcional)
-                <input
-                  value={name}
-                  onChange={event => setName(event.target.value)}
-                  autoComplete="name"
-                  maxLength={100}
-                />
-              </label>
-              <label>
-                E-mail
-                <input
-                  type="email"
-                  required
-                  value={email}
-                  onChange={event => setEmail(event.target.value)}
-                  autoComplete="email"
-                  maxLength={254}
-                />
-              </label>
-            </>
-          ) : (
+          {registering && (
             <label>
-              Código enviado para {email}
+              Nome (opcional)
               <input
-                value={code}
-                onChange={event => setCode(event.target.value)}
-                inputMode="numeric"
-                autoComplete="one-time-code"
-                pattern="[0-9]{8}"
-                minLength={8}
-                maxLength={8}
+                value={name}
+                onChange={event => setName(event.target.value)}
+                autoComplete="name"
+                maxLength={100}
+              />
+            </label>
+          )}
+          <label>
+            E-mail
+            <input
+              type="email"
+              required
+              value={email}
+              onChange={event => setEmail(event.target.value)}
+              autoComplete="email"
+              maxLength={254}
+            />
+          </label>
+          <label>
+            Senha
+            <input
+              type="password"
+              required
+              value={password}
+              onChange={event => setPassword(event.target.value)}
+              autoComplete={registering ? 'new-password' : 'current-password'}
+              minLength={registering ? 15 : 1}
+              maxLength={128}
+            />
+          </label>
+          {registering && (
+            <label>
+              Confirmar senha
+              <input
+                type="password"
                 required
+                value={confirmation}
+                onChange={event => setConfirmation(event.target.value)}
+                autoComplete="new-password"
+                minLength={15}
+                maxLength={128}
               />
             </label>
           )}
           <button disabled={working}>
             {working
               ? 'Aguarde…'
-              : challenge
-                ? 'Confirmar código'
-                : 'Receber código'}
+              : registering
+                ? 'Cadastrar e entrar'
+                : 'Entrar'}
           </button>
-          {challenge && (
-            <button
-              type="button"
-              disabled={working}
-              onClick={() => {
-                setChallenge('');
-                setError('');
-              }}
-            >
-              Alterar e-mail ou reenviar
-            </button>
-          )}
+          <button
+            type="button"
+            disabled={working}
+            onClick={() => {
+              setRegistering(!registering);
+              setPassword('');
+              setConfirmation('');
+              setError('');
+            }}
+          >
+            {registering ? 'Já tenho conta' : 'Criar conta'}
+          </button>
+          <p>
+            Para recuperar ou definir a senha de uma conta antiga, solicite um
+            link ao administrador e abra-o no navegador.
+          </p>
         </form>
       )}
       {update?.enabled && (

@@ -2,7 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
+import { hashPassword } from "../accounts/src/passwords.js";
 import { createAccountsHandler } from "../accounts/src/index.js";
+const PASSWORD = "uma senha longa para os testes";
 const policy = {
   LATEST_VERSION: "0.2.1",
   MINIMUM_VERSION: "0.2.0",
@@ -23,6 +25,12 @@ function fixture() {
       "utf8",
     ),
   );
+  db.exec(
+    readFileSync(
+      new URL("../accounts/migrations/0003_passwords.sql", import.meta.url),
+      "utf8",
+    ),
+  );
   const prepare = (sql) => {
     let args = [];
     return {
@@ -37,13 +45,15 @@ function fixture() {
         return { results: db.prepare(sql).all(...args) };
       },
       async run() {
-        return db.prepare(sql).run(...args);
+        const statement = db.prepare(sql);
+        return statement.columns().length
+          ? { results: statement.all(...args) }
+          : statement.run(...args);
       },
     };
   };
-  const outbox = [];
   const env = {
-    AUTH_SECRET: "a".repeat(64),
+    ADMIN_PASSWORD: PASSWORD,
     DB: {
       prepare,
       async batch(statements) {
@@ -61,9 +71,7 @@ function fixture() {
     },
     ...policy,
   };
-  const handler = createAccountsHandler(async (_env, email, code) =>
-    outbox.push({ email, code }),
-  );
+  const handler = createAccountsHandler();
   async function call(
     route,
     { data, token, cookie, headers = {}, version = "0.2.0", method } = {},
@@ -91,20 +99,34 @@ function fixture() {
     };
   }
   async function login(client = "desktop", email = "user@example.com") {
-    const sent = await call("/api/auth/request-code", {
-      data: { email, name: "Douglas" },
-    });
-    assert.equal(sent.status, 200);
-    return call("/api/auth/verify-code", {
+    if (!db.prepare("SELECT id FROM users WHERE email=?").get(email)) {
+      if ((env.ADMIN_EMAILS || "").toLowerCase().includes(email)) {
+        db.prepare(
+          "INSERT INTO users(id,email,name,created_at,password_hash) VALUES(?,?,?,?,?)",
+        ).run(
+          crypto.randomUUID(),
+          email,
+          "Douglas",
+          Date.now(),
+          await hashPassword(PASSWORD),
+        );
+      } else {
+        const registered = await call("/api/auth/register", {
+          data: { email, password: PASSWORD, name: "Douglas", client },
+        });
+        assert.equal(registered.status, 201);
+      }
+    }
+    return call("/api/auth/login", {
       data: {
-        challengeId: sent.data.challengeId,
-        code: outbox.at(-1).code,
+        email,
+        password: PASSWORD,
         client,
         deviceId: "12345678-1234-1234-1234-123456789012",
       },
     });
   }
-  return { db, env, call, login, outbox };
+  return { db, env, call, login };
 }
 test("verified account, private hashed sessions and minimum-version enforcement", async () => {
   const f = fixture();
@@ -137,85 +159,6 @@ test("verified account, private hashed sessions and minimum-version enforcement"
     f.db.close();
   }
 });
-test("one-time code cannot be replayed, guessed indefinitely or read from responses", async () => {
-  const f = fixture();
-  try {
-    const sent = await f.call("/api/auth/request-code", {
-      data: { email: "user@example.com" },
-    });
-    assert.equal(sent.data.code, undefined);
-    const payload = {
-      challengeId: sent.data.challengeId,
-      code: f.outbox[0].code,
-      client: "desktop",
-    };
-    assert.equal(
-      (await f.call("/api/auth/verify-code", { data: payload })).status,
-      200,
-    );
-    assert.equal(
-      (await f.call("/api/auth/verify-code", { data: payload })).status,
-      401,
-    );
-    const next = await f.call("/api/auth/request-code", {
-      data: { email: "user@example.com" },
-    });
-    const right = f.outbox.at(-1).code,
-      wrong = right === "00000000" ? "11111111" : "00000000";
-    for (let i = 0; i < 5; i++)
-      assert.equal(
-        (
-          await f.call("/api/auth/verify-code", {
-            data: { challengeId: next.data.challengeId, code: wrong },
-          })
-        ).status,
-        401,
-      );
-    assert.equal(
-      (
-        await f.call("/api/auth/verify-code", {
-          data: { challengeId: next.data.challengeId, code: right },
-        })
-      ).status,
-      401,
-    );
-  } finally {
-    f.db.close();
-  }
-});
-test("expired code and concurrent consumption cannot create extra sessions", async () => {
-  const f = fixture();
-  try {
-    const sent = await f.call("/api/auth/request-code", {
-      data: { email: "user@example.com" },
-    });
-    f.db.prepare("UPDATE challenges SET expires_at=0").run();
-    assert.equal(
-      (
-        await f.call("/api/auth/verify-code", {
-          data: { challengeId: sent.data.challengeId, code: f.outbox[0].code },
-        })
-      ).status,
-      401,
-    );
-    const next = await f.call("/api/auth/request-code", {
-      data: { email: "user@example.com" },
-    });
-    const data = {
-      challengeId: next.data.challengeId,
-      code: f.outbox.at(-1).code,
-      client: "desktop",
-    };
-    const replies = await Promise.all([
-      f.call("/api/auth/verify-code", { data }),
-      f.call("/api/auth/verify-code", { data }),
-    ]);
-    assert.deepEqual(replies.map((r) => r.status).sort(), [200, 401]);
-    assert.equal(f.db.prepare("SELECT count(*) AS n FROM sessions").get().n, 1);
-  } finally {
-    f.db.close();
-  }
-});
 test("browser session is HttpOnly, logout revokes it and cross-origin calls are rejected", async () => {
   const f = fixture();
   try {
@@ -241,47 +184,6 @@ test("browser session is HttpOnly, logout revokes it and cross-origin calls are 
       200,
     );
     assert.equal((await f.call("/api/session", { cookie })).status, 401);
-  } finally {
-    f.db.close();
-  }
-});
-test("email send rate limit and invalid payloads", async () => {
-  const f = fixture();
-  try {
-    for (let i = 0; i < 3; i++)
-      assert.equal(
-        (
-          await f.call("/api/auth/request-code", {
-            data: { email: "user@example.com" },
-          })
-        ).status,
-        200,
-      );
-    assert.equal(
-      (
-        await f.call("/api/auth/request-code", {
-          data: { email: "user@example.com" },
-        })
-      ).status,
-      429,
-    );
-    assert.equal(
-      (await f.call("/api/auth/request-code", { data: { email: "invalid" } }))
-        .status,
-      400,
-    );
-    assert.equal(
-      (
-        await f.call("/api/auth/request-code", {
-          data: { email: "a@b.com", name: "x".repeat(5000) },
-        })
-      ).status,
-      413,
-    );
-    assert.equal(
-      (await f.call("/api/session", { token: "invalid" })).status,
-      401,
-    );
   } finally {
     f.db.close();
   }
@@ -416,9 +318,9 @@ test("admin lists users and devices without tokens, blocks and unblocks, and aud
       cookie,
     });
     assert.equal(listed.data.users.length, 1);
-    assert.equal(listed.data.users[0].active_sessions, 1);
+    assert.equal(listed.data.users[0].active_sessions, 2);
     const devices = await f.call(`/api/admin/users/${id}/sessions`, { cookie });
-    assert.equal(devices.data.sessions.length, 1);
+    assert.equal(devices.data.sessions.length, 2);
     assert.equal(devices.data.sessions[0].client, "desktop");
     assert.equal(devices.data.sessions[0].token_hash, undefined);
     assert.equal(JSON.stringify(devices.data).includes(user.data.token), false);
@@ -706,9 +608,11 @@ test("user pagination has stable boundaries and ordinary users cannot mutate adm
       cookie = admin.cookie.split(";")[0];
     for (let i = 0; i < 27; i++)
       f.db
-        .prepare("INSERT INTO users VALUES(?,?,?,?,?)")
+        .prepare(
+          "INSERT INTO users(id,email,name,status,created_at) VALUES(?,?,?,?,?)",
+        )
         .run(
-          `00000000-0000-0000-0000-${String(i).padStart(12, "0")}`,
+          `10000000-0000-0000-0000-${String(i).padStart(12, "0")}`,
           `person${i}@example.com`,
           `Person ${i}`,
           "active",
@@ -718,11 +622,11 @@ test("user pagination has stable boundaries and ordinary users cannot mutate adm
     const second = (await f.call("/api/admin/users?page=2", { cookie })).data;
     assert.equal(first.users.length, 25);
     assert.equal(first.hasMore, true);
-    assert.equal(second.users.length, 3);
+    assert.equal(second.users.length, 4);
     assert.equal(second.hasMore, false);
     assert.equal(
       new Set([...first.users, ...second.users].map((u) => u.id)).size,
-      28,
+      29,
     );
     const ordinary = await f.login("browser"),
       ordinaryCookie = ordinary.cookie.split(";")[0];
@@ -755,5 +659,384 @@ test("user pagination has stable boundaries and ordinary users cannot mutate adm
     );
   } finally {
     f.db.close();
+  }
+});
+
+test("registration stores salted password hashes and rejects duplicate or reserved identities", async () => {
+  const f = fixture();
+  try {
+    const data = {
+      email: " New@Example.com ",
+      password: PASSWORD,
+      name: "Cliente",
+      client: "browser",
+    };
+    const created = await f.call("/api/auth/register", { data });
+    assert.equal(created.status, 201);
+    assert.equal(created.data.user.email, "new@example.com");
+    assert.equal(created.data.token, undefined);
+    const row = f.db
+      .prepare("SELECT password_hash FROM users WHERE email=?")
+      .get("new@example.com");
+    assert.match(row.password_hash, /^pbkdf2-sha256\$600000\$/);
+    assert.equal(row.password_hash.includes(PASSWORD), false);
+    assert.equal((await f.call("/api/auth/register", { data })).status, 409);
+    assert.equal(
+      (
+        await f.call("/api/auth/register", {
+          data: { ...data, email: "admin@cutting.com" },
+        })
+      ).status,
+      400,
+    );
+    assert.equal(
+      (
+        await f.call("/api/auth/register", {
+          data: { ...data, email: "small@example.com", password: "short" },
+        })
+      ).status,
+      400,
+    );
+    assert.equal(
+      (
+        await f.call("/api/auth/login", {
+          data: { email: "new@example.com", password: "wrong" },
+        })
+      ).status,
+      401,
+    );
+    assert.equal(
+      (
+        await f.call("/api/auth/login", {
+          data: { email: "absent@example.com", password: PASSWORD },
+        })
+      ).status,
+      401,
+    );
+    assert.equal(
+      (
+        await f.call("/api/auth/request-code", {
+          data: { email: "new@example.com" },
+        })
+      ).status,
+      410,
+    );
+  } finally {
+    f.db.close();
+  }
+});
+test("reserved administrator initializes only with configured password, then uses its stored hash", async () => {
+  const f = fixture();
+  try {
+    delete f.env.ADMIN_PASSWORD;
+    const data = {
+      email: "admin@cutting.com",
+      password: PASSWORD,
+      client: "browser",
+    };
+    assert.equal((await f.call("/api/auth/login", { data })).status, 503);
+    f.env.ADMIN_PASSWORD = PASSWORD;
+    assert.equal(
+      (
+        await f.call("/api/auth/login", {
+          data: { ...data, password: "a different long password" },
+        })
+      ).status,
+      401,
+    );
+    assert.equal(
+      f.db
+        .prepare(
+          "SELECT password_hash FROM users WHERE email='admin@cutting.com'",
+        )
+        .get().password_hash,
+      null,
+    );
+    const admin = await f.call("/api/auth/login", { data });
+    assert.equal(admin.status, 200);
+    assert.equal(admin.data.isAdmin, true);
+    delete f.env.ADMIN_PASSWORD;
+    assert.equal((await f.call("/api/auth/login", { data })).status, 200);
+    const cookie = admin.cookie.split(";")[0];
+    assert.equal(
+      (await f.call("/api/admin/me", { cookie })).data.email,
+      "admin@cutting.com",
+    );
+  } finally {
+    f.db.close();
+  }
+});
+test("password change requires current password and revokes other sessions", async () => {
+  const f = fixture();
+  try {
+    const browser = await f.login("browser"),
+      desktop = await f.login(),
+      cookie = browser.cookie.split(";")[0];
+    assert.equal(
+      (
+        await f.call("/api/auth/password", {
+          cookie,
+          data: {
+            currentPassword: "wrong",
+            password: "uma nova senha longa de teste",
+          },
+        })
+      ).status,
+      401,
+    );
+    const changed = await f.call("/api/auth/password", {
+      cookie,
+      data: {
+        currentPassword: PASSWORD,
+        password: "uma nova senha longa de teste",
+      },
+    });
+    assert.equal(changed.status, 200);
+    assert.equal(
+      (await f.call("/api/session", { token: desktop.data.token })).status,
+      401,
+    );
+    assert.equal((await f.call("/api/session", { cookie })).status, 401);
+    assert.equal(
+      (await f.call("/api/session", { cookie: changed.cookie.split(";")[0] }))
+        .status,
+      200,
+    );
+    assert.equal(
+      (
+        await f.call("/api/auth/login", {
+          data: { email: "user@example.com", password: PASSWORD },
+        })
+      ).status,
+      401,
+    );
+  } finally {
+    f.db.close();
+  }
+});
+test("legacy accounts cannot be taken over by registration and can define a password from an existing session", async () => {
+  const f = fixture();
+  try {
+    const browser = await f.login("browser"),
+      id = browser.data.user.id,
+      cookie = browser.cookie.split(";")[0];
+    f.db.prepare("UPDATE users SET password_hash=NULL WHERE id=?").run(id);
+    assert.equal(
+      (
+        await f.call("/api/auth/register", {
+          data: { email: "user@example.com", password: PASSWORD },
+        })
+      ).status,
+      409,
+    );
+    assert.equal(
+      (
+        await f.call("/api/auth/login", {
+          data: { email: "user@example.com", password: PASSWORD },
+        })
+      ).status,
+      401,
+    );
+    assert.equal(
+      (await f.call("/api/session", { cookie })).data.needsPassword,
+      true,
+    );
+    assert.equal(
+      (
+        await f.call("/api/auth/password", {
+          cookie,
+          data: { password: PASSWORD },
+        })
+      ).status,
+      200,
+    );
+  } finally {
+    f.db.close();
+  }
+});
+test("admin password links are hashed, expire, cannot be replayed, and revoke existing sessions", async () => {
+  const f = fixture();
+  try {
+    const admin = await f.login("browser", "admin@cutting.com"),
+      cookie = admin.cookie.split(";")[0];
+    const user = await f.login(),
+      id = user.data.user.id;
+    const link = await f.call(`/api/admin/users/${id}/password-reset`, {
+      cookie,
+      data: {},
+    });
+    assert.equal(link.status, 200);
+    const token = new URL(link.data.resetUrl).hash.slice(7);
+    assert.match(token, /^[a-f0-9]{64}$/);
+    assert.equal(
+      f.db
+        .prepare("SELECT token_hash FROM password_resets")
+        .get()
+        .token_hash.includes(token),
+      false,
+    );
+    assert.equal(
+      (
+        await f.call(`/api/admin/users/${admin.data.user.id}/password-reset`, {
+          cookie,
+          data: {},
+        })
+      ).status,
+      409,
+    );
+    f.db.prepare("UPDATE password_resets SET expires_at=0").run();
+    assert.equal(
+      (
+        await f.call("/api/auth/reset-password", {
+          data: { token, password: PASSWORD },
+        })
+      ).status,
+      400,
+    );
+    const next = await f.call(`/api/admin/users/${id}/password-reset`, {
+        cookie,
+        data: {},
+      }),
+      newToken = new URL(next.data.resetUrl).hash.slice(7);
+    const replies = await Promise.all([
+      f.call("/api/auth/reset-password", {
+        data: { token: newToken, password: "uma nova senha longa de teste" },
+      }),
+      f.call("/api/auth/reset-password", {
+        data: { token: newToken, password: "uma nova senha longa de teste" },
+      }),
+    ]);
+    assert.deepEqual(replies.map((r) => r.status).sort(), [200, 400]);
+    assert.equal(
+      (await f.call("/api/session", { token: user.data.token })).status,
+      401,
+    );
+    assert.equal(
+      (
+        await f.call("/api/auth/login", {
+          data: {
+            email: "user@example.com",
+            password: "uma nova senha longa de teste",
+          },
+        })
+      ).status,
+      200,
+    );
+    assert.equal(
+      JSON.stringify(
+        (await f.call("/api/admin/audit", { cookie })).data,
+      ).includes(newToken),
+      false,
+    );
+  } finally {
+    f.db.close();
+  }
+});
+
+test("reset transaction failure preserves the link and active sessions for a safe retry", async () => {
+  const f = fixture();
+  try {
+    const admin = await f.login("browser", "admin@cutting.com"),
+      cookie = admin.cookie.split(";")[0],
+      user = await f.login();
+    const link = await f.call(
+        `/api/admin/users/${user.data.user.id}/password-reset`,
+        { cookie, data: {} },
+      ),
+      token = new URL(link.data.resetUrl).hash.slice(7);
+    f.db.exec(
+      "CREATE TRIGGER reject_password BEFORE UPDATE OF password_hash ON users BEGIN SELECT RAISE(ABORT,'fail'); END",
+    );
+    assert.equal(
+      (
+        await f.call("/api/auth/reset-password", {
+          data: { token, password: PASSWORD },
+        })
+      ).status,
+      503,
+    );
+    assert.equal(
+      f.db.prepare("SELECT used_at FROM password_resets").get().used_at,
+      null,
+    );
+    assert.equal(
+      (await f.call("/api/session", { token: user.data.token })).status,
+      200,
+    );
+    f.db.exec("DROP TRIGGER reject_password");
+    assert.equal(
+      (
+        await f.call("/api/auth/reset-password", {
+          data: { token, password: PASSWORD },
+        })
+      ).status,
+      200,
+    );
+  } finally {
+    f.db.close();
+  }
+});
+test("login throttling and password migration retain existing identities and ordinary sessions", async () => {
+  const f = fixture();
+  try {
+    for (let i = 0; i < 10; i++)
+      assert.equal(
+        (
+          await f.call("/api/auth/login", {
+            data: { email: "nobody@example.com", password: "wrong" },
+          })
+        ).status,
+        401,
+      );
+    assert.equal(
+      (
+        await f.call("/api/auth/login", {
+          data: { email: "nobody@example.com", password: "wrong" },
+        })
+      ).status,
+      429,
+    );
+  } finally {
+    f.db.close();
+  }
+  const db = new DatabaseSync(":memory:");
+  try {
+    for (const name of ["0001_accounts.sql", "0002_admin.sql"])
+      db.exec(
+        readFileSync(
+          new URL(`../accounts/migrations/${name}`, import.meta.url),
+          "utf8",
+        ),
+      );
+    db.exec(
+      "INSERT INTO users VALUES('legacy','old@example.com','Old','active',1); INSERT INTO sessions(token_hash,user_id,device_id,client,created_at,expires_at,last_seen_at) VALUES('token','legacy','device','browser',1,9999999999999,1)",
+    );
+    db.exec(
+      readFileSync(
+        new URL("../accounts/migrations/0003_passwords.sql", import.meta.url),
+        "utf8",
+      ),
+    );
+    assert.equal(
+      db.prepare("SELECT password_hash FROM users WHERE id='legacy'").get()
+        .password_hash,
+      null,
+    );
+    assert.equal(
+      db
+        .prepare("SELECT COUNT(*) AS n FROM sessions WHERE user_id='legacy'")
+        .get().n,
+      1,
+    );
+    assert.equal(
+      db
+        .prepare(
+          "SELECT password_hash FROM users WHERE email='admin@cutting.com'",
+        )
+        .get().password_hash,
+      null,
+    );
+  } finally {
+    db.close();
   }
 });

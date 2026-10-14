@@ -1,16 +1,19 @@
-import { randomUUID } from "node:crypto";
+import { randomUUID, randomBytes, createHash } from "node:crypto";
 import { HttpError, json, body } from "../../shared/http.js";
 import {
   validateVersionConfig,
   loadVersionConfig,
 } from "../../shared/version-policy.js";
 
+import { ADMIN_EMAIL } from "./passwords.js";
+
 export function isAdmin(env, email) {
   return (
-    typeof env.ADMIN_EMAILS === "string" &&
-    env.ADMIN_EMAILS.split(",").some(
-      (entry) => entry.trim().toLowerCase() === email.toLowerCase(),
-    )
+    email.toLowerCase() === ADMIN_EMAIL ||
+    (typeof env.ADMIN_EMAILS === "string" &&
+      env.ADMIN_EMAILS.split(",").some(
+        (entry) => entry.trim().toLowerCase() === email.toLowerCase(),
+      ))
   );
 }
 function audit(env, actor, action, target, details, now) {
@@ -123,7 +126,7 @@ export async function handleAdmin(request, env, actor, now) {
     });
   }
   const match = path.match(
-    /^\/api\/admin\/users\/([a-f0-9-]{36})\/(status|sessions)$/,
+    /^\/api\/admin\/users\/([a-f0-9-]{36})\/(status|sessions|password-reset)$/,
   );
   if (!match) throw new HttpError(404, "Rota não encontrada.");
   const [, id, operation] = match;
@@ -144,6 +147,26 @@ export async function handleAdmin(request, env, actor, now) {
   }
   method(request, "POST");
   const data = await body(request);
+  if (operation === "password-reset") {
+    if (user.email === ADMIN_EMAIL)
+      throw new HttpError(
+        409,
+        "Use sua senha atual para alterar a senha do administrador.",
+      );
+    const token = randomBytes(32).toString("hex"),
+      tokenHash = createHash("sha256").update(token).digest("hex");
+    await env.DB.batch([
+      env.DB.prepare("DELETE FROM password_resets WHERE user_id=?").bind(id),
+      env.DB.prepare(
+        "INSERT INTO password_resets(token_hash,user_id,created_by,expires_at) VALUES(?,?,?,?)",
+      ).bind(tokenHash, id, actor.user_id, now + 3600000),
+      audit(env, actor, "user.password-link", id, {}, now),
+    ]);
+    return json({
+      resetUrl: `${url.origin}/#reset=${token}`,
+      expiresAt: now + 3600000,
+    });
+  }
   if (operation === "status") {
     if (!["active", "blocked"].includes(data.status))
       throw new HttpError(400, "Status inválido.");

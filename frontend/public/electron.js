@@ -342,11 +342,11 @@ const cloudOperation = async action => {
   }
 };
 ipcMain.handle('account-state', () => cloudOperation(() => cloud.getState()));
-ipcMain.handle('account-request-code', (_event, email, name) =>
-  cloudOperation(() => cloud.requestCode(email, name))
+ipcMain.handle('account-login', (_event, email, password) =>
+  cloudOperation(() => cloud.login(email, password))
 );
-ipcMain.handle('account-verify-code', (_event, id, code) =>
-  cloudOperation(() => cloud.verifyCode(id, code))
+ipcMain.handle('account-register', (_event, email, password, name) =>
+  cloudOperation(() => cloud.register(email, password, name))
 );
 ipcMain.handle('account-logout', () => cloudOperation(() => cloud.logout()));
 ipcMain.handle('update-state', () => updates.getState());
