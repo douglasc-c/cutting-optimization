@@ -2,7 +2,7 @@
 
 O Worker **cutting-accounts** atende o portal, cadastro com senha, login, sessões, autorização e política de versões. Usa o D1 `cutting-accounts`. O backend Python continua executando a otimização no computador; projetos e exportações não mudam.
 
-O login usa o e-mail como identificador, sem confirmação por e-mail. Não depende de Resend, `EMAIL_FROM`, `RESEND_API_KEY` ou `AUTH_SECRET`. Não é uma prova de propriedade do endereço de e-mail. Novas contas têm senhas protegidas com PBKDF2-HMAC-SHA256 (600.000 iterações, salt aleatório de 16 bytes, hash de 32 bytes). Senhas têm 15 a 128 caracteres, sem regras obrigatórias de símbolos ou letras. A comparação é feita em tempo constante.
+O login usa o e-mail como identificador, sem confirmação por e-mail. Não depende de Resend, `EMAIL_FROM`, `RESEND_API_KEY` ou `AUTH_SECRET`. Não é uma prova de propriedade do endereço de e-mail. Novas contas têm senhas protegidas com PBKDF2-HMAC-SHA256 (600.000 iterações, salt aleatório de 16 bytes, hash de 32 bytes). Senhas têm 8 a 128 caracteres, sem regras obrigatórias de símbolos ou letras. A comparação é feita em tempo constante.
 
 ## Desenvolvimento e testes
 
@@ -21,7 +21,7 @@ npm run dev
 Para testar a ativação administrativa, defina uma senha escolhida por você em `accounts/.dev.vars` (arquivo ignorado pelo Git):
 
 ```dotenv
-ADMIN_PASSWORD=SUA_SENHA_INICIAL_COM_PELO_MENOS_15_CARACTERES
+ADMIN_PASSWORD=SUA_SENHA_INICIAL_COM_PELO_MENOS_8_CARACTERES
 ```
 
 Abra o endereço mostrado pelo Wrangler. O motor desktop pode usar o serviço local com `CUTTING_ACCOUNT_URL=http://localhost:8787 make start` na raiz. Aplicativos empacotados sempre exigem o serviço HTTPS configurado.
@@ -39,7 +39,7 @@ Abra o endereço mostrado pelo Wrangler. O motor desktop pode usar o serviço lo
    | Deploy command | `npm run deploy:production` |
 
 3. Publique após incorporar esta alteração. O comando aplica `0003_passwords.sql` antes do código. Ela adiciona o hash das senhas, os links de definição/recuperação e reserva `admin@cutting.com`. Usuários e sessões comuns são preservados. Apenas sessões anteriores da identidade reservada `admin@cutting.com` são removidas, e uma eventual senha anterior dessa identidade é invalidada para não conceder privilégio a uma conta pré-existente.
-4. Em **Settings → Runtime variables and secrets → Add variable**, escolha **Secret**, nome **ADMIN_PASSWORD**, valor: uma senha inicial escolhida por você com 15 a 128 caracteres. Salve/aplique. Não cadastre essa senha nas variáveis de build nem no GitHub.
+4. Em **Settings → Runtime variables and secrets → Add variable**, escolha **Secret**, nome **ADMIN_PASSWORD**, valor: uma senha inicial escolhida por você com 8 a 128 caracteres. Salve/aplique. Não cadastre essa senha nas variáveis de build nem no GitHub.
 5. No portal, entre com **admin@cutting.com** e essa senha. A primeira entrada grava somente o hash no D1. Depois disso, o valor de `ADMIN_PASSWORD` não altera a senha existente; você pode remover o secret após ativar a conta. Para mudar a senha, use **Minha conta → Alterar senha**, informando a senha atual.
 6. Clique em **Abrir administração** ou acesse `/admin/`. Confirme cadastro de usuário comum, login, bloqueio, revogação, alteração de versões e geração de link de senha.
 

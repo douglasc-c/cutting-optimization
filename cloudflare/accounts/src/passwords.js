@@ -6,10 +6,10 @@ export const ADMIN_EMAIL = "admin@cutting.com";
 export function validatePassword(password) {
   if (
     typeof password !== "string" ||
-    password.length < 15 ||
+    password.length < 8 ||
     password.length > 128
   )
-    throw new HttpError(400, "Use uma senha com 15 a 128 caracteres.");
+    throw new HttpError(400, "Use uma senha com 8 a 128 caracteres.");
 }
 const derive = (password, salt) =>
   new Promise((resolve, reject) => {

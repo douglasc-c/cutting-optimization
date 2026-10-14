@@ -198,7 +198,7 @@ export default function AccountAccess({
               value={password}
               onChange={event => setPassword(event.target.value)}
               autoComplete={registering ? 'new-password' : 'current-password'}
-              minLength={registering ? 15 : 1}
+              minLength={registering ? 8 : 1}
               maxLength={128}
             />
           </label>
@@ -211,7 +211,7 @@ export default function AccountAccess({
                 value={confirmation}
                 onChange={event => setConfirmation(event.target.value)}
                 autoComplete="new-password"
-                minLength={15}
+                minLength={8}
                 maxLength={128}
               />
             </label>
