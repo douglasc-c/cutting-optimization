@@ -14,7 +14,7 @@
     {
       "binding": "DB",
       "database_name": "cutting-accounts",
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "4d46b37f-6007-44f4-91b2-0ee567979731",
       "migrations_dir": "migrations",
     },
   ],
