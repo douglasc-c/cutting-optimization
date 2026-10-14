@@ -201,7 +201,7 @@ export function createAccountsHandler() {
         if (user?.email === ADMIN_EMAIL && !user.password_hash) {
           if (
             typeof env.ADMIN_PASSWORD !== "string" ||
-            env.ADMIN_PASSWORD.length < 15 ||
+            env.ADMIN_PASSWORD.length < 8 ||
             env.ADMIN_PASSWORD.length > 128
           )
             throw new HttpError(

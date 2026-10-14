@@ -1040,3 +1040,85 @@ test("login throttling and password migration retain existing identities and ord
     db.close();
   }
 });
+
+test("eight-character passwords work for signup, admin initialization, change and reset", async () => {
+  const f = fixture();
+  try {
+    f.env.ADMIN_PASSWORD = "Admin123";
+    const admin = await f.call("/api/auth/login", {
+      data: {
+        email: "admin@cutting.com",
+        password: "Admin123",
+        client: "browser",
+      },
+    });
+    assert.equal(admin.status, 200);
+    const adminCookie = admin.cookie.split(";")[0];
+    const user = await f.call("/api/auth/register", {
+      data: {
+        email: "eight@example.com",
+        password: "User1234",
+        client: "browser",
+      },
+    });
+    assert.equal(user.status, 201);
+    assert.equal(
+      (
+        await f.call("/api/auth/register", {
+          data: { email: "short@example.com", password: "1234567" },
+        })
+      ).status,
+      400,
+    );
+    const cookie = user.cookie.split(";")[0];
+    assert.equal(
+      (
+        await f.call("/api/auth/password", {
+          cookie,
+          data: { currentPassword: "User1234", password: "1234567" },
+        })
+      ).status,
+      400,
+    );
+    assert.equal(
+      (
+        await f.call("/api/auth/password", {
+          cookie,
+          data: { currentPassword: "User1234", password: "Next1234" },
+        })
+      ).status,
+      200,
+    );
+    const link = await f.call(
+      `/api/admin/users/${user.data.user.id}/password-reset`,
+      { cookie: adminCookie, data: {} },
+    );
+    const token = new URL(link.data.resetUrl).hash.slice(7);
+    assert.equal(
+      (
+        await f.call("/api/auth/reset-password", {
+          data: { token, password: "1234567" },
+        })
+      ).status,
+      400,
+    );
+    assert.equal(
+      (
+        await f.call("/api/auth/reset-password", {
+          data: { token, password: "Last1234" },
+        })
+      ).status,
+      200,
+    );
+    assert.equal(
+      (
+        await f.call("/api/auth/login", {
+          data: { email: "eight@example.com", password: "Last1234" },
+        })
+      ).status,
+      200,
+    );
+  } finally {
+    f.db.close();
+  }
+});

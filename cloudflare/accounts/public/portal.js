@@ -52,7 +52,7 @@ $("toggle-register").addEventListener("click", () => {
   $("name-field").hidden = !registering;
   $("confirmation-field").hidden = !registering;
   $("confirmation").required = registering;
-  $("password").minLength = registering ? 15 : 1;
+  $("password").minLength = registering ? 8 : 1;
   $("password").autocomplete = registering
     ? "new-password"
     : "current-password";
@@ -60,7 +60,7 @@ $("toggle-register").addEventListener("click", () => {
     ? "Criar minha conta"
     : "Entrar na sua conta";
   $("login-description").textContent = registering
-    ? "Use uma senha com 15 a 128 caracteres."
+    ? "Use uma senha com 8 a 128 caracteres."
     : "Use seu e-mail e sua senha.";
   $("login-submit").textContent = registering ? "Cadastrar e entrar" : "Entrar";
   $("toggle-register").textContent = registering
