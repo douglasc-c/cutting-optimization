@@ -58,7 +58,9 @@ function wrap(text: string, width: number, size: number, measure: MeasureText): 
 }
 
 export function labelLayout(piece: PlacedPiece, measure: MeasureText = measureText) {
-  const rotated = pieceRotated(piece);
+  // Follow the longest side of the placed rectangle, including square pieces.
+  // Packing rotation metadata describes the source piece, not the text direction.
+  const rotated = piece.height >= piece.width;
   const width = rotated ? piece.height : piece.width;
   const height = rotated ? piece.width : piece.height;
   const padding = Math.min(Math.min(width, height) * 0.06, 8);
