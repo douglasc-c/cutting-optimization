@@ -130,6 +130,26 @@ A sessão dura até 30 dias. Após validar online, há tolerância offline de at
 
 O token fica no processo principal; o renderer recebe apenas estado da conta e política de versão. A persistência usa `safeStorage`; sem criptografia disponível (ou backend Linux `basic_text`), a sessão fica apenas em memória e exige novo login ao reabrir. Logout apaga o acesso local mesmo offline; nesse caso a revogação remota não pode ser confirmada até haver conexão. Bloqueios feitos enquanto o computador está offline passam a valer na reconexão ou no término da tolerância. Como o motor é local, um cliente modificado pode contornar controles locais; esta estrutura não promete proteção absoluta contra adulteração.
 
+## Diagnosticar falhas no envio do código
+
+Um `401` de `/api/session` antes do login indica ausência de sessão. Já um `503` de `/api/auth/request-code` exige conferir a configuração, o D1 ou o provedor de e-mail. O Worker registra `request_code_failed` nos logs de observabilidade com etapa e motivo, mantendo uma resposta genérica para o navegador.
+
+Após publicar, abra **cutting-accounts → Observability → Logs**, solicite o código uma vez e consulte o evento correspondente:
+
+| Motivo | Verificação |
+|---|---|
+| `AUTH_SECRET_NOT_CONFIGURED` | Secret de runtime `AUTH_SECRET`, com pelo menos 32 caracteres |
+| `RESEND_API_KEY_MISSING` | Secret de runtime `RESEND_API_KEY` |
+| `EMAIL_FROM_MISSING` / `EMAIL_FROM_PLACEHOLDER` | Remetente configurado e domínio verificado no Resend |
+| `DATABASE_ERROR` | Binding `DB`, banco correto e migrações aplicadas; `stage` distingue limite, criação ou limpeza do código |
+| `RESEND_REJECTED` | `providerStatus` é o status HTTP do Resend; confira o pedido no painel do Resend (401: chave; 403: domínio/destinatário/permissão; 429: limite) |
+| `RESEND_NETWORK_ERROR` | Falha ou timeout ao chamar o provedor |
+| `EMAIL_DELIVERY_ERROR` | Falha de envio sem classificação específica |
+
+Os eventos não incluem destinatário, código de acesso, corpo do e-mail, chave da API, mensagem bruta do provedor ou detalhes SQL. Os logs ficam habilitados na configuração Wrangler. Rejeições normais por entrada inválida ou limite de tentativas não geram esse evento de falha do serviço.
+
+O `EMAIL_FROM` precisa usar um domínio próprio verificado no Resend. Gmail pode ser usado como destinatário e em `ADMIN_EMAILS`, mas não como domínio do remetente. Para um teste inicial, `Cutting Optimization <onboarding@resend.dev>` envia para o e-mail de cadastro da conta Resend; para outros destinatários, verifique seu domínio. Alterações temporárias de `EMAIL_FROM` no painel podem ser substituídas pelo próximo deploy: atualize também `accounts/wrangler.jsonc` com o remetente definitivo.
+
 ## Ativar o painel administrativo
 
 1. Publique usando `npm run deploy:production` (ou `npm run db:remote && npm run deploy:accounts`). A migração `0002_admin.sql` adiciona a política de versões e o histórico administrativo; preserva usuários, sessões e códigos existentes. Não use apenas `npm run deploy` antes de aplicar esta migração: as consultas de versão precisam da nova tabela.

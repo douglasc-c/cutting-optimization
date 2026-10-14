@@ -36,29 +36,39 @@ async function rateLimit(env, key, limit, windowMs, now) {
   if (row.count > limit)
     throw new HttpError(429, "Muitas tentativas. Aguarde alguns minutos.");
 }
+class DeliveryError extends Error {
+  constructor(reason, providerStatus) {
+    super("Email delivery failed");
+    this.reason = reason;
+    this.providerStatus = providerStatus;
+  }
+}
 export async function sendEmail(env, email, code) {
-  if (
-    !env.RESEND_API_KEY ||
-    !env.EMAIL_FROM ||
-    env.EMAIL_FROM.includes("example.com")
-  )
-    throw Error("Email not configured");
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    redirect: "error",
-    signal: AbortSignal.timeout(15000),
-    headers: {
-      Authorization: `Bearer ${env.RESEND_API_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      from: env.EMAIL_FROM,
-      to: [email],
-      subject: "Seu código de acesso ao Cutting Optimization",
-      text: `Seu código é ${code}. Ele expira em 10 minutos. Não compartilhe este código. Se não solicitou o acesso, ignore esta mensagem.`,
-    }),
-  });
-  if (!response.ok) throw Error("Email delivery failed");
+  if (!env.RESEND_API_KEY) throw new DeliveryError("RESEND_API_KEY_MISSING");
+  if (!env.EMAIL_FROM) throw new DeliveryError("EMAIL_FROM_MISSING");
+  if (env.EMAIL_FROM.includes("example.com"))
+    throw new DeliveryError("EMAIL_FROM_PLACEHOLDER");
+  let response;
+  try {
+    response = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      redirect: "error",
+      signal: AbortSignal.timeout(15000),
+      headers: {
+        Authorization: `Bearer ${env.RESEND_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        from: env.EMAIL_FROM,
+        to: [email],
+        subject: "Seu código de acesso ao Cutting Optimization",
+        text: `Seu código é ${code}. Ele expira em 10 minutos. Não compartilhe este código. Se não solicitou o acesso, ignore esta mensagem.`,
+      }),
+    });
+  } catch {
+    throw new DeliveryError("RESEND_NETWORK_ERROR");
+  }
+  if (!response.ok) throw new DeliveryError("RESEND_REJECTED", response.status);
 }
 function cookie(request, token, maxAge) {
   const local = ["localhost", "127.0.0.1"].includes(
@@ -93,8 +103,15 @@ async function session(request, env, now) {
     );
   return row;
 }
-export function createAccountsHandler(deliver = sendEmail) {
+export function createAccountsHandler(
+  deliver = sendEmail,
+  report = (event) => console.error(JSON.stringify(event)),
+) {
   return async (request, env) => {
+    const requestCode =
+      request.method === "POST" &&
+      new URL(request.url).pathname === "/api/auth/request-code";
+    let stage = "auth_config";
     try {
       const url = new URL(request.url),
         now = Date.now();
@@ -127,7 +144,7 @@ export function createAccountsHandler(deliver = sendEmail) {
       }
       if (url.pathname === "/api/version")
         throw new HttpError(405, "Método não permitido.");
-      if (!env.AUTH_SECRET || env.AUTH_SECRET.length < 32)
+      if (typeof env.AUTH_SECRET !== "string" || env.AUTH_SECRET.length < 32)
         throw Error("Auth secret not configured");
       if (url.pathname.startsWith("/api/admin/"))
         return await handleAdmin(
@@ -145,21 +162,26 @@ export function createAccountsHandler(deliver = sendEmail) {
         const name =
           typeof data.name === "string" ? data.name.trim().slice(0, 100) : "";
         const ip = request.headers.get("cf-connecting-ip") || "local";
+        stage = "rate_limit_database";
         await rateLimit(env, `send-ip:${ip}`, 20, 3600000, now);
         await rateLimit(env, `send-email:${email}`, 3, 900000, now);
         const id = randomUUID(),
           code = String(randomInt(0, 100000000)).padStart(8, "0");
+        stage = "create_challenge_database";
         await env.DB.prepare(
           "INSERT INTO challenges(id,email,name,code_hash,expires_at) VALUES(?,?,?,?,?)",
         )
           .bind(id, email, name, codeHash(env, id, code), now + 600000)
           .run();
+        stage = "send_email";
         try {
           await deliver(env, email, code);
         } catch (error) {
+          stage = "cleanup_challenge_database";
           await env.DB.prepare("DELETE FROM challenges WHERE id=?")
             .bind(id)
             .run();
+          stage = "send_email";
           throw error;
         }
         return json({
@@ -303,6 +325,28 @@ export function createAccountsHandler(deliver = sendEmail) {
       }
       throw new HttpError(404, "Rota não encontrada.");
     } catch (error) {
+      if (requestCode && (!error.status || error.status >= 500)) {
+        const event = {
+          event: "request_code_failed",
+          stage,
+          reason:
+            error instanceof DeliveryError
+              ? error.reason
+              : stage === "auth_config"
+                ? "AUTH_SECRET_NOT_CONFIGURED"
+                : stage.endsWith("database")
+                  ? "DATABASE_ERROR"
+                  : "EMAIL_DELIVERY_ERROR",
+          ...(error instanceof DeliveryError && error.providerStatus
+            ? { providerStatus: error.providerStatus }
+            : {}),
+        };
+        try {
+          report(event);
+        } catch {
+          /* Diagnostics must not alter the response. */
+        }
+      }
       return failure(error);
     }
   };

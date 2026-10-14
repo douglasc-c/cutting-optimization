@@ -2,14 +2,14 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
-import { createAccountsHandler } from "../accounts/src/index.js";
+import { createAccountsHandler, sendEmail } from "../accounts/src/index.js";
 const policy = {
   LATEST_VERSION: "0.2.1",
   MINIMUM_VERSION: "0.2.0",
   RELEASE_URL:
     "https://github.com/douglasc-c/cutting-optimization/releases/latest",
 };
-function fixture() {
+function fixture({ deliver, report } = {}) {
   const db = new DatabaseSync(":memory:");
   db.exec(
     readFileSync(
@@ -61,8 +61,9 @@ function fixture() {
     },
     ...policy,
   };
-  const handler = createAccountsHandler(async (_env, email, code) =>
-    outbox.push({ email, code }),
+  const handler = createAccountsHandler(
+    deliver || (async (_env, email, code) => outbox.push({ email, code })),
+    report,
   );
   async function call(
     route,
@@ -751,6 +752,94 @@ test("user pagination has stable boundaries and ordinary users cannot mutate adm
     );
     assert.equal(
       f.db.prepare("SELECT COUNT(*) AS n FROM admin_audit").get().n,
+      0,
+    );
+  } finally {
+    f.db.close();
+  }
+});
+
+test("request-code diagnostics distinguish configuration and database errors without leaking details", async () => {
+  const events = [],
+    f = fixture({ report: (event) => events.push(event) });
+  try {
+    f.env.AUTH_SECRET = "short";
+    assert.equal(
+      (
+        await f.call("/api/auth/request-code", {
+          data: { email: "user@example.com" },
+        })
+      ).status,
+      503,
+    );
+    assert.deepEqual(events.pop(), {
+      event: "request_code_failed",
+      stage: "auth_config",
+      reason: "AUTH_SECRET_NOT_CONFIGURED",
+    });
+    f.env.AUTH_SECRET = "a".repeat(64);
+    f.db.exec("DROP TABLE rate_limits");
+    const response = await f.call("/api/auth/request-code", {
+      data: { email: "user@example.com" },
+    });
+    assert.equal(response.status, 503);
+    assert.deepEqual(events.pop(), {
+      event: "request_code_failed",
+      stage: "rate_limit_database",
+      reason: "DATABASE_ERROR",
+    });
+    assert.equal(response.data.error, "Serviço indisponível. Tente novamente.");
+  } finally {
+    f.db.close();
+  }
+});
+
+test("email diagnostics distinguish missing keys, provider rejection and network failure; failed codes are removed", async (t) => {
+  const events = [],
+    f = fixture({ deliver: sendEmail, report: (event) => events.push(event) });
+  try {
+    const request = () =>
+      f.call("/api/auth/request-code", { data: { email: "user@example.com" } });
+    assert.equal((await request()).status, 503);
+    assert.equal(events.at(-1).reason, "RESEND_API_KEY_MISSING");
+    f.env.RESEND_API_KEY = "re_TEST_SECRET";
+    assert.equal((await request()).status, 503);
+    assert.equal(events.at(-1).reason, "EMAIL_FROM_MISSING");
+    f.env.EMAIL_FROM = "Cutting <onboarding@resend.dev>";
+    const mock = t.mock.method(
+      globalThis,
+      "fetch",
+      async () =>
+        new Response(
+          JSON.stringify({
+            message:
+              "sensitive provider message user@example.com re_TEST_SECRET",
+          }),
+          { status: 403 },
+        ),
+    );
+    assert.equal((await request()).status, 503);
+    assert.deepEqual(events.at(-1), {
+      event: "request_code_failed",
+      stage: "send_email",
+      reason: "RESEND_REJECTED",
+      providerStatus: 403,
+    });
+    assert.equal(
+      f.db.prepare("SELECT COUNT(*) AS n FROM challenges").get().n,
+      0,
+    );
+    f.db.exec("DELETE FROM rate_limits");
+    mock.mock.mockImplementation(async () => {
+      throw Error("network details containing secrets");
+    });
+    assert.equal((await request()).status, 503);
+    assert.equal(events.at(-1).reason, "RESEND_NETWORK_ERROR");
+    assert.equal(JSON.stringify(events).includes("re_TEST_SECRET"), false);
+    assert.equal(JSON.stringify(events).includes("user@example.com"), false);
+    assert.equal(JSON.stringify(events).includes("sensitive"), false);
+    assert.equal(
+      f.db.prepare("SELECT COUNT(*) AS n FROM challenges").get().n,
       0,
     );
   } finally {
