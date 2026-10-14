@@ -15,7 +15,13 @@ async function fixture({
   Object.assign(app, {
     isPackaged: packaged,
     dock: { setIcon: file => events.push(['dockIcon', file]) },
-    name: 'Cutting Optimization',
+    name: 'Electron',
+    setName: name => {
+      app.name = name;
+      events.push(['appName', name]);
+    },
+    setPath: (key, value) => events.push(['appPath', key, value]),
+    getName: () => app.name,
     whenReady: () => Promise.resolve(),
     getPath: () => '/tmp/test-workspace',
     addRecentDocument: () => {},
@@ -188,6 +194,20 @@ test('macOS applies the approved Dock icon in development', async () => {
         Array.isArray(e) &&
         e[0] === 'dockIcon' &&
         e[1].endsWith(path.join('public', 'icon.png'))
+    )
+  );
+});
+
+test('human-readable app name preserves the existing recovery directory', async () => {
+  const { events, app } = await fixture({ packaged: false });
+  assert.equal(app.name, 'Cutting Optimization');
+  assert.ok(
+    events.some(
+      e =>
+        Array.isArray(e) &&
+        e[0] === 'appPath' &&
+        e[1] === 'userData' &&
+        e[2] === '/tmp/test-workspace'
     )
   );
 });

@@ -2,6 +2,7 @@ const path = require('node:path');
 const net = require('node:net');
 const http = require('node:http');
 const { spawn } = require('node:child_process');
+const { prepareMacRuntime } = require('./macos-runtime');
 const project = path.resolve(__dirname, '..');
 const marker = '<meta name="application-name" content="cutting-optimization"';
 
@@ -123,7 +124,8 @@ async function main(dev = process.argv.includes('--dev')) {
       console.log('Gerando a interface local do Cutting Optimization…');
       await runNodeScript(require.resolve('react-scripts/scripts/build'), env);
     }
-    electron = spawn(require('electron'), [project], {
+    const executable = prepareMacRuntime(require('electron'), project);
+    electron = spawn(executable, [project], {
       cwd: project,
       env,
       stdio: 'inherit',

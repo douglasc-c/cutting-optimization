@@ -309,3 +309,11 @@ Para regenerar os arquivos PNG, ICO e ICNS, instale Pillow e execute `npm run ge
 Para desenvolvimento com atualização automática, use `npm run dev:electron` ou `make dev-electron`. O launcher inicia um servidor próprio em uma porta livre e só abre o Electron depois de confirmar o identificador do Cutting Optimization. Ao fechar o Electron, o servidor desse processo é encerrado. A versão web continua disponível por `npm run start:frontend`.
 
 No macOS, o aplicativo define o ícone do Dock explicitamente durante a execução. Após atualizar o repositório, feche a janela antiga e execute `make start` novamente.
+
+### Nome no Dock do macOS
+
+No macOS, `make start` e o launcher de desenvolvimento usam uma cópia local do runtime chamada `Cutting Optimization.app`, com o nome e o ícone da marca nos metadados nativos. A primeira execução prepara e assina localmente essa cópia; as próximas reutilizam o cache. A dependência original do Electron não é alterada. O local dos dados de recuperação é preservado quando o nome interno da aplicação é atualizado.
+
+Depois de atualizar o código, feche a janela antiga e execute `make start` novamente para abrir a aplicação com o nome correto.
+
+O ícone nativo original do runtime também é substituído na cópia local antes de abrir o processo, para manter a mesma marca nas transições de abertura e encerramento. Uma revisão do cache força a preparação novamente após essa atualização.
