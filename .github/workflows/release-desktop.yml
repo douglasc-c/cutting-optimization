@@ -1,0 +1,110 @@
+name: Release desktop updates
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: write
+concurrency:
+  group: desktop-release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: win
+            arch: x64
+          - os: macos-15-intel
+            platform: mac
+            arch: x64
+          - os: macos-15
+            platform: mac
+            arch: arm64
+          - os: ubuntu-22.04
+            platform: linux
+            arch: x64
+    runs-on: ${{ matrix.os }}
+    env:
+      CUTTING_ACCOUNT_URL: ${{ vars.CUTTING_ACCOUNT_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: npm ci
+      - name: Validate release version and account service
+        shell: bash
+        run: |
+          node -e 'if (process.env.GITHUB_REF_NAME !== "v" + require("./frontend/package.json").version) throw new Error("Tag and frontend version differ")'
+          npm run configure:cloud --workspace=frontend
+      - run: pip install -r backend/requirements.txt pyinstaller
+      - name: Build standalone optimizer
+        working-directory: backend
+        run: python build_standalone.py
+      - name: Copy native optimizer
+        shell: bash
+        run: |
+          if [ "${{ matrix.platform }}" = "win" ]; then
+            cp backend/dist/cutting-optimization-backend.exe backend/cutting-optimization-backend.exe
+          else
+            cp backend/dist/cutting-optimization-backend backend/cutting-optimization-backend
+            chmod +x backend/cutting-optimization-backend
+          fi
+      - name: Validate macOS signing configuration
+        if: matrix.platform == 'mac'
+        shell: bash
+        env:
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          test -n "$CSC_LINK" && test -n "$CSC_KEY_PASSWORD" && test -n "$APPLE_ID" && test -n "$APPLE_APP_SPECIFIC_PASSWORD" && test -n "$APPLE_TEAM_ID"
+      - run: npm run build:frontend
+      - name: Package application
+        working-directory: frontend
+        shell: bash
+        env:
+          CSC_LINK: ${{ matrix.platform == 'mac' && secrets.MAC_CSC_LINK || secrets.WIN_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ matrix.platform == 'mac' && secrets.MAC_CSC_KEY_PASSWORD || secrets.WIN_CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: npx electron-builder --${{ matrix.platform }} --${{ matrix.arch }} --publish never
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.platform }}-${{ matrix.arch }}
+          if-no-files-found: error
+          path: |
+            frontend/dist/*.exe
+            frontend/dist/*.dmg
+            frontend/dist/*.zip
+            frontend/dist/*.AppImage
+            frontend/dist/*.deb
+            frontend/dist/*.rpm
+            frontend/dist/latest*.yml
+            frontend/dist/*.blockmap
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+      - run: pip install PyYAML==6.0.2
+      - run: python scripts/tests/manifest_merge_test.py
+      - name: Merge platform update manifests
+        run: python scripts/merge_update_manifests.py release-assets
+      - uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          prerelease: false
+          files: release-assets/merged/*

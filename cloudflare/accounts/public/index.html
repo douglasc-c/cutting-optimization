@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Minha conta · Cutting Optimization</title>
+    <link rel="stylesheet" href="/portal.css" />
+    <script src="/portal.js" defer></script>
+  </head>
+  <body>
+    <header>
+      <img src="/logo.png" alt="Cutting Optimization" /><span>Minha conta</span>
+    </header>
+    <main>
+      <section class="intro">
+        <p class="eyebrow">SEU ESPAÇO DE CORTE</p>
+        <h1>Organize seus cortes.<br />Mantenha tudo em dia.</h1>
+        <p>
+          Acesse sua conta e encontre a versão mais recente do aplicativo. Seus
+          projetos e cálculos continuam no seu computador.
+        </p>
+        <div id="release" class="release" hidden>
+          <span id="release-version"></span
+          ><a id="download" href="#">Baixar aplicativo</a>
+        </div>
+      </section>
+      <section class="card" aria-label="Acesso à conta">
+        <div id="login">
+          <h2>Entrar ou criar conta</h2>
+          <p>Enviaremos um código para confirmar seu e-mail.</p>
+          <form id="request-form">
+            <label for="name">Nome <small>(opcional)</small></label
+            ><input id="name" autocomplete="name" maxlength="100" /><label
+              for="email"
+              >E-mail</label
+            ><input
+              id="email"
+              type="email"
+              autocomplete="email"
+              maxlength="254"
+              required
+            /><button type="submit">Receber código de acesso</button>
+          </form>
+        </div>
+        <div id="verification" hidden>
+          <h2>Confira seu e-mail</h2>
+          <p id="sent-to"></p>
+          <form id="verify-form">
+            <label for="code">Código de 8 números</label
+            ><input
+              id="code"
+              inputmode="numeric"
+              autocomplete="one-time-code"
+              pattern="[0-9]{8}"
+              minlength="8"
+              maxlength="8"
+              required
+            /><button type="submit">Confirmar e entrar</button>
+          </form>
+          <button id="back" class="secondary">
+            Usar outro e-mail ou reenviar
+          </button>
+        </div>
+        <div id="account" hidden>
+          <h2>Conta confirmada</h2>
+          <p id="account-email"></p>
+          <p>Use este mesmo e-mail para entrar no aplicativo instalado.</p>
+          <button id="logout" class="secondary">Sair da conta</button>
+        </div>
+        <p id="status" role="status" aria-live="polite"></p>
+      </section>
+    </main>
+    <footer>Cutting Optimization · Planejamento de corte</footer>
+  </body>
+</html>

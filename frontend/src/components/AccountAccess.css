@@ -1,0 +1,91 @@
+.account-strip {
+  margin: 12px 20px;
+  padding: 16px 20px;
+  background: #fff;
+  border: 1px solid #dce5ed;
+  border-radius: 12px;
+  color: #172b40;
+  font-size: 14px;
+}
+.account-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.account-heading p {
+  margin: 6px 0 0;
+  color: #526478;
+  line-height: 1.5;
+}
+.account-actions,
+.account-form,
+.update-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.account-strip button {
+  border: 1px solid #bdcbd8;
+  border-radius: 7px;
+  background: #f3f6f9;
+  color: #172b40;
+  padding: 10px 14px;
+  font: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.account-strip button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.account-form {
+  margin-top: 16px;
+  align-items: end;
+  flex-wrap: wrap;
+}
+.account-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 180px;
+  flex: 1;
+}
+.account-form input {
+  padding: 10px;
+  border: 1px solid #bdcbd8;
+  border-radius: 7px;
+  font: inherit;
+  width: 100%;
+}
+.account-form button[type='submit'] {
+  background: #176f73;
+  color: #fff;
+  border-color: #176f73;
+}
+.update-row {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #e5ebf0;
+  justify-content: space-between;
+}
+.account-error {
+  color: #a92736;
+}
+.account-strip :focus-visible {
+  outline: 3px solid #e99d35;
+  outline-offset: 3px;
+}
+@media (max-width: 850px) {
+  .account-heading,
+  .update-row {
+    align-items: start;
+    flex-direction: column;
+  }
+  .account-actions {
+    flex-wrap: wrap;
+  }
+  .account-strip {
+    margin: 10px;
+  }
+}

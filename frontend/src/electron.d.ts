@@ -1,3 +1,4 @@
+import { AccountState, UpdateState } from './components/AccountAccess';
 declare global {
   interface Window {
     electronAPI?: {
@@ -5,9 +6,7 @@ declare global {
       cancelOptimization?: (jobId: string) => Promise<{ success: boolean }>;
       saveConfig: (config: any, existingPath?: string) => Promise<any>;
       loadConfig: (path?: string) => Promise<any>;
-      saveSvg: (
-        svg: string
-      ) => Promise<{
+      saveSvg: (svg: string) => Promise<{
         success: boolean;
         canceled?: boolean;
         error?: string;
@@ -28,6 +27,18 @@ declare global {
       showExportInFolder?: (path: string) => Promise<void>;
       getAppVersion: () => Promise<string>;
       getAppName: () => Promise<string>;
+      getAccountState?: () => Promise<AccountState>;
+      requestAccountCode?: (
+        email: string,
+        name: string
+      ) => Promise<{ challengeId?: string; error?: string }>;
+      verifyAccountCode?: (id: string, code: string) => Promise<AccountState>;
+      logoutAccount?: () => Promise<AccountState>;
+      getUpdateState?: () => Promise<UpdateState>;
+      checkUpdates?: () => Promise<UpdateState>;
+      downloadUpdate?: () => Promise<UpdateState>;
+      installUpdate?: () => Promise<{ success?: boolean; error?: string }>;
+      onUpdateState?: (callback: (state: UpdateState) => void) => () => void;
       onMenuAction?: (callback: (action: string) => void) => () => void;
       onOptimizationProgress?: (callback: (data: any) => void) => () => void;
     };

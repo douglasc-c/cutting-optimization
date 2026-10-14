@@ -71,7 +71,7 @@ jobs:
     - name: Set up Node.js
       uses: actions/setup-node@v4
       with:
-        node-version: '18'
+        node-version: '22'
     
     - name: Verify Node.js
       run: |
@@ -120,6 +120,11 @@ jobs:
         }
         Write-Host "✅ Backend executable ready for electron-builder"
     
+    - name: Configure account service
+      run: npm run configure:cloud --workspace=frontend
+      env:
+        CUTTING_ACCOUNT_URL: ${{ vars.CUTTING_ACCOUNT_URL }}
+
     - name: Build Windows installer
       run: |
         cd frontend

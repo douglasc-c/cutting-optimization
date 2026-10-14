@@ -6,12 +6,15 @@ const {
   Menu,
   shell,
   screen,
+  safeStorage,
 } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const { resultsToCsv } = require('./resultExport');
 const { createWorkspaceStore } = require('./workspaceStore');
 const { createOptimizationRunner } = require('./optimizationRunner');
+const { createCloudClient } = require('./cloudClient');
+const { createUpdateManager } = require('./updateManager');
 // Keep the existing recovery directory when setting the human-readable app name.
 const existingUserData = app.getPath('userData');
 fs.mkdirSync(existingUserData, { recursive: true });
@@ -20,6 +23,8 @@ app.setPath('userData', existingUserData);
 
 let mainWindow,
   store,
+  cloud,
+  updates,
   allowClose = false,
   quitting = false;
 let documentState = { dirty: false, busy: false, name: 'Projeto sem título' };
@@ -272,6 +277,29 @@ app
         )
       );
     }
+    const serviceConfig = JSON.parse(
+      fs.readFileSync(path.join(__dirname, 'cloud-service.json'), 'utf8')
+    );
+    cloud = createCloudClient({
+      url: app.isPackaged
+        ? serviceConfig.accountUrl
+        : process.env.CUTTING_ACCOUNT_URL || serviceConfig.accountUrl,
+      packaged: app.isPackaged,
+      version: () => app.getVersion(),
+      platform: process.platform,
+      directory: app.getPath('userData'),
+      safeStorage,
+    });
+    const updatingEnabled = app.isPackaged && cloud.configured;
+    updates = createUpdateManager({
+      enabled: updatingEnabled,
+      updater: updatingEnabled ? require('electron-updater').autoUpdater : null,
+      documentState: () => documentState,
+      onChange: state => {
+        if (mainWindow && !mainWindow.isDestroyed())
+          mainWindow.webContents.send('update-state', state);
+      },
+    });
     createWindow();
   })
   .catch(error => {
@@ -298,9 +326,33 @@ app.on('before-quit', event => {
     sendAction('close');
   } else runner.cancelAll();
 });
-ipcMain.handle('optimize-cutting', (event, config, jobId) =>
-  runner.run(event.sender, config, jobId)
+ipcMain.handle('optimize-cutting', async (event, config, jobId) => {
+  try {
+    await cloud.assertAllowed();
+    return await runner.run(event.sender, config, jobId);
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+const cloudOperation = async action => {
+  try {
+    return await action();
+  } catch (error) {
+    return { error: error.message };
+  }
+};
+ipcMain.handle('account-state', () => cloudOperation(() => cloud.getState()));
+ipcMain.handle('account-request-code', (_event, email, name) =>
+  cloudOperation(() => cloud.requestCode(email, name))
 );
+ipcMain.handle('account-verify-code', (_event, id, code) =>
+  cloudOperation(() => cloud.verifyCode(id, code))
+);
+ipcMain.handle('account-logout', () => cloudOperation(() => cloud.logout()));
+ipcMain.handle('update-state', () => updates.getState());
+ipcMain.handle('update-check', () => updates.check());
+ipcMain.handle('update-download', () => updates.download());
+ipcMain.handle('update-install', () => cloudOperation(() => updates.install()));
 ipcMain.handle('cancel-optimization', (event, jobId) => ({
   success: runner.cancel(event.sender.id, jobId),
 }));

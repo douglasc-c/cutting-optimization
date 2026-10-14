@@ -105,7 +105,9 @@ async function fixture({
             ? { createOptimizationRunner: () => runner }
             : name === './resultExport'
               ? require('../public/resultExport')
-              : require(name);
+              : name.startsWith('./')
+                ? require(path.join(directory, name))
+                : require(name);
   vm.runInNewContext(
     fs.readFileSync(path.join(directory, 'electron.js'), 'utf8'),
     {
@@ -210,4 +212,11 @@ test('human-readable app name preserves the existing recovery directory', async 
         e[2] === '/tmp/test-workspace'
     )
   );
+});
+
+test('packaged optimization is denied in the main process when the account service is unconfigured', async()=> {
+  const {handlers}=await fixture();
+  const result=await handlers.get('optimize-cutting')({sender:{id:1}}, {}, 'job');
+  assert.equal(result.success,false);
+  assert.match(result.error,/serviço de contas/);
 });

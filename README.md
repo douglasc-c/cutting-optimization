@@ -317,3 +317,9 @@ No macOS, `make start` e o launcher de desenvolvimento usam uma cópia local do 
 Depois de atualizar o código, feche a janela antiga e execute `make start` novamente para abrir a aplicação com o nome correto.
 
 O ícone nativo original do runtime também é substituído na cópia local antes de abrir o processo, para manter a mesma marca nas transições de abertura e encerramento. Uma revisão do cache força a preparação novamente após essa atualização.
+
+## Contas e atualizações no Cloudflare
+
+A implantação de contas foi separada do motor Python em dois Workers JavaScript: `cutting-accounts` (portal, sessões e banco D1) e `cutting-versions` (versão recente e mínima permitida). O Electron valida o acesso antes de calcular, preserva salvar/exportar e oferece atualização por GitHub Releases. O portal web não executa o motor de corte.
+
+Consulte [cloudflare/README.md](cloudflare/README.md) para criar o banco, configurar e-mail, publicar os serviços e conectar os instaladores. É necessário configurar o endereço HTTPS antes de empacotar. Desenvolvimento local sem endereço configurado continua funcionando com `make start`.
