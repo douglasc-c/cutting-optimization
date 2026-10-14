@@ -36,7 +36,7 @@ function showAccess(status) {
     status === 401 ? "Entre na sua conta" : "Acesso restrito";
   $("access-message").querySelector("p").textContent =
     status === 401
-      ? "Use seu e-mail de administrador e confirme o código recebido. Depois, volte a esta página."
+      ? "Use seu e-mail de administrador e entre com sua senha. Depois, volte a esta página."
       : "Sua conta não tem permissão para administrar o aplicativo.";
   $("admin-logout").hidden = status === 401;
 }
@@ -136,6 +136,26 @@ async function loadUsers() {
         $("sessions-dialog").showModal();
       }),
     );
+    if (user.email !== "admin@cutting.com")
+      group.append(
+        button("Gerar link de senha", async () => {
+          if (
+            !confirm(
+              `Gerar um link de senha para ${user.email}? Links anteriores serão substituídos.`,
+            )
+          )
+            return;
+          const result = await api(
+            `/api/admin/users/${user.id}/password-reset`,
+            {},
+          );
+          $("password-link-user").textContent = user.email;
+          $("password-link").value = result.resetUrl;
+          $("copy-status").textContent = "";
+          $("password-link-dialog").showModal();
+          await loadAudit();
+        }),
+      );
     if (!user.isAdmin)
       group.append(
         button(
@@ -192,6 +212,7 @@ async function loadAudit() {
   const labels = {
     "user.status": "Status do usuário alterado",
     "user.sessions.revoke": "Sessões revogadas",
+    "user.password-link": "Link de senha gerado",
     "version.update": "Política de versões atualizada",
   };
   for (const event of result.events) {
@@ -286,4 +307,18 @@ void run(async () => {
   await loadAudit();
   $("access-message").hidden = true;
   $("workspace").hidden = false;
+});
+
+$("close-password-link").addEventListener("click", () => {
+  $("password-link-dialog").close();
+  $("password-link").value = "";
+});
+$("copy-password-link").addEventListener("click", async () => {
+  try {
+    await navigator.clipboard.writeText($("password-link").value);
+    $("copy-status").textContent = "Link copiado.";
+  } catch {
+    $("password-link").select();
+    $("copy-status").textContent = "Selecione e copie o link manualmente.";
+  }
 });

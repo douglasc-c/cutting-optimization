@@ -18,7 +18,6 @@
     },
   ],
   "vars": {
-    "EMAIL_FROM": "Cutting Optimization <acesso@cutting-optimization.com>",
     "LATEST_VERSION": "0.2.0",
     "MINIMUM_VERSION": "0.2.0",
     "RELEASE_URL": "https://github.com/douglasc-c/cutting-optimization/releases/latest",

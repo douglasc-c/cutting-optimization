@@ -23,10 +23,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),
   getAppName: () => ipcRenderer.invoke('get-app-name'),
   getAccountState: () => ipcRenderer.invoke('account-state'),
-  requestAccountCode: (email, name) =>
-    ipcRenderer.invoke('account-request-code', email, name),
-  verifyAccountCode: (id, code) =>
-    ipcRenderer.invoke('account-verify-code', id, code),
+  loginAccount: (email, password) =>
+    ipcRenderer.invoke('account-login', email, password),
+  registerAccount: (email, password, name) =>
+    ipcRenderer.invoke('account-register', email, password, name),
   logoutAccount: () => ipcRenderer.invoke('account-logout'),
   getUpdateState: () => ipcRenderer.invoke('update-state'),
   checkUpdates: () => ipcRenderer.invoke('update-check'),

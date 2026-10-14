@@ -139,6 +139,24 @@
       <ul id="sessions-list" class="sessions-list"></ul>
       <p id="sessions-empty" hidden>Nenhuma sessão ativa.</p>
     </dialog>
+    <dialog id="password-link-dialog">
+      <div class="section-heading">
+        <h2>Link para definir senha</h2>
+        <button id="close-password-link" class="secondary compact">
+          Fechar
+        </button>
+      </div>
+      <p id="password-link-user"></p>
+      <p>
+        Copie e compartilhe diretamente com a pessoa. O link vale por uma hora e
+        só pode ser usado uma vez.
+      </p>
+      <label for="password-link">Link de acesso</label
+      ><input id="password-link" readonly /><button id="copy-password-link">
+        Copiar link
+      </button>
+      <p id="copy-status" role="status"></p>
+    </dialog>
     <footer>Cutting Optimization · Administração</footer>
   </body>
 </html>

@@ -26,47 +26,109 @@
       </section>
       <section class="card" aria-label="Acesso à conta">
         <div id="login">
-          <h2>Entrar ou criar conta</h2>
-          <p>Enviaremos um código para confirmar seu e-mail.</p>
-          <form id="request-form">
-            <label for="name">Nome <small>(opcional)</small></label
-            ><input id="name" autocomplete="name" maxlength="100" /><label
-              for="email"
-              >E-mail</label
+          <h2 id="login-title">Entrar na sua conta</h2>
+          <p id="login-description">Use seu e-mail e sua senha.</p>
+          <form id="login-form">
+            <div id="name-field" hidden>
+              <label for="name">Nome (opcional)</label
+              ><input id="name" autocomplete="name" maxlength="100" />
+            </div>
+            <label for="email">E-mail</label
             ><input
               id="email"
               type="email"
               autocomplete="email"
               maxlength="254"
               required
-            /><button type="submit">Receber código de acesso</button>
-          </form>
-        </div>
-        <div id="verification" hidden>
-          <h2>Confira seu e-mail</h2>
-          <p id="sent-to"></p>
-          <form id="verify-form">
-            <label for="code">Código de 8 números</label
+            />
+            <label for="password">Senha</label
             ><input
-              id="code"
-              inputmode="numeric"
-              autocomplete="one-time-code"
-              pattern="[0-9]{8}"
-              minlength="8"
-              maxlength="8"
+              id="password"
+              type="password"
+              autocomplete="current-password"
+              maxlength="128"
               required
-            /><button type="submit">Confirmar e entrar</button>
+            />
+            <div id="confirmation-field" hidden>
+              <label for="confirmation">Confirmar senha</label
+              ><input
+                id="confirmation"
+                type="password"
+                autocomplete="new-password"
+                maxlength="128"
+              />
+            </div>
+            <button id="login-submit" type="submit">Entrar</button>
           </form>
-          <button id="back" class="secondary">
-            Usar outro e-mail ou reenviar
-          </button>
+          <button id="toggle-register" class="secondary">Criar conta</button>
+          <p>
+            Esqueceu a senha ou sua conta ainda não tem senha? Solicite um link
+            ao administrador.
+          </p>
         </div>
         <div id="account" hidden>
-          <h2>Conta confirmada</h2>
+          <h2>Minha conta</h2>
           <p id="account-email"></p>
-          <p>Use este mesmo e-mail para entrar no aplicativo instalado.</p>
+          <p>Use este mesmo e-mail e senha no aplicativo instalado.</p>
           <a id="admin-link" href="/admin/" hidden>Abrir administração</a>
+          <h3 id="password-title">Alterar senha</h3>
+          <form id="password-form">
+            <div id="current-password-field">
+              <label for="current-password">Senha atual</label
+              ><input
+                id="current-password"
+                type="password"
+                autocomplete="current-password"
+                maxlength="128"
+              />
+            </div>
+            <label for="new-password">Nova senha</label
+            ><input
+              id="new-password"
+              type="password"
+              autocomplete="new-password"
+              minlength="15"
+              maxlength="128"
+              required
+            />
+            <label for="new-confirmation">Confirmar nova senha</label
+            ><input
+              id="new-confirmation"
+              type="password"
+              autocomplete="new-password"
+              minlength="15"
+              maxlength="128"
+              required
+            /><button type="submit">Salvar senha</button>
+          </form>
           <button id="logout" class="secondary">Sair da conta</button>
+        </div>
+        <div id="reset" hidden>
+          <h2>Definir nova senha</h2>
+          <p>
+            O link é de uso único e vale por uma hora. Use uma senha com 15 a
+            128 caracteres.
+          </p>
+          <form id="reset-form">
+            <label for="reset-password">Nova senha</label
+            ><input
+              id="reset-password"
+              type="password"
+              autocomplete="new-password"
+              minlength="15"
+              maxlength="128"
+              required
+            />
+            <label for="reset-confirmation">Confirmar nova senha</label
+            ><input
+              id="reset-confirmation"
+              type="password"
+              autocomplete="new-password"
+              minlength="15"
+              maxlength="128"
+              required
+            /><button type="submit">Definir senha</button>
+          </form>
         </div>
         <p id="status" role="status" aria-live="polite"></p>
       </section>

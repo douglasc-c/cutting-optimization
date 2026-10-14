@@ -28,11 +28,12 @@ declare global {
       getAppVersion: () => Promise<string>;
       getAppName: () => Promise<string>;
       getAccountState?: () => Promise<AccountState>;
-      requestAccountCode?: (
+      loginAccount?: (email: string, password: string) => Promise<AccountState>;
+      registerAccount?: (
         email: string,
+        password: string,
         name: string
-      ) => Promise<{ challengeId?: string; error?: string }>;
-      verifyAccountCode?: (id: string, code: string) => Promise<AccountState>;
+      ) => Promise<AccountState>;
       logoutAccount?: () => Promise<AccountState>;
       getUpdateState?: () => Promise<UpdateState>;
       checkUpdates?: () => Promise<UpdateState>;

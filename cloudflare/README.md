@@ -1,15 +1,12 @@
-# Cutting: contas e versões no Cloudflare
+# Cutting: contas, senhas e versões em um Worker
 
-Contas e política de versões são atendidas por um único Worker JavaScript com compatibilidade Node.js: **cutting-accounts**. O backend Python continua executando o motor de corte localmente, sem alterações nas regras de otimização.
+O Worker **cutting-accounts** atende o portal, cadastro com senha, login, sessões, autorização e política de versões. Usa o D1 `cutting-accounts`. O backend Python continua executando a otimização no computador; projetos e exportações não mudam.
 
-- **cutting-accounts**: portal web, confirmação de e-mail, sessões, dispositivos, autorização e política de versões (versão mais recente, mínima suportada e endereço dos instaladores). Usa o banco D1 `cutting-accounts` e avalia versões no próprio código, sem Service Binding.
-- **Electron**: consulta a conta no processo principal antes de cada otimização. Login não impede salvar ou exportar projetos. Atualizações usam `electron-updater` e GitHub Releases.
+O login usa o e-mail como identificador, sem confirmação por e-mail. Não depende de Resend, `EMAIL_FROM`, `RESEND_API_KEY` ou `AUTH_SECRET`. Não é uma prova de propriedade do endereço de e-mail. Novas contas têm senhas protegidas com PBKDF2-HMAC-SHA256 (600.000 iterações, salt aleatório de 16 bytes, hash de 32 bytes). Senhas têm 15 a 128 caracteres, sem regras obrigatórias de símbolos ou letras. A comparação é feita em tempo constante.
 
-A interface web criada aqui é um portal de contas e downloads. Não executa o otimizador no navegador. O painel administrativo fica em `/admin/`. Administradores podem listar e bloquear usuários, revogar sessões, alterar a política de versões e consultar o histórico de ações. O acesso usa o mesmo login por e-mail do portal e exige que o e-mail esteja configurado em `ADMIN_EMAILS`.
+## Desenvolvimento e testes
 
-## 1. Instalação e testes locais
-
-Requer Node.js 22 atualizado ou superior. A partir da raiz do repositório:
+Requer Node.js 22 atualizado ou superior. Na raiz:
 
 ```bash
 npm ci
@@ -18,85 +15,64 @@ npm ci
 npm test
 npm run check
 npm run db:local
-```
-
-Os testes usam SQLite real para contas e validam a política de versões dentro do mesmo Worker, sem binding `VERSIONS`. O comando `check` empacota somente `cutting-accounts`, sem publicá-lo. Confira o `database_id` de `accounts/wrangler.jsonc` antes de executar migrações remotas.
-
-Para testar o envio real de códigos, crie `cloudflare/accounts/.dev.vars`, que é ignorado pelo Git:
-
-```dotenv
-AUTH_SECRET=UMA_CHAVE_ALEATORIA_DE_PELO_MENOS_32_CARACTERES
-RESEND_API_KEY=SUA_CHAVE_RESEND
-EMAIL_FROM=Cutting Optimization <acesso@seu-dominio.com>
-```
-
-O remetente precisa ter domínio verificado no Resend. Não há código de acesso fixo, retorno de código pela API nem modo que ignore autenticação em produção. Os testes automatizados simulam somente a entrega do e-mail.
-
-```bash
 npm run dev
 ```
 
-O Wrangler inicia somente o Worker de contas e versões. Abra o endereço exibido no terminal. Em outro terminal, na raiz do projeto, use o endereço local do Worker de contas:
+Para testar a ativação administrativa, defina uma senha escolhida por você em `accounts/.dev.vars` (arquivo ignorado pelo Git):
 
-```bash
-CUTTING_ACCOUNT_URL=http://localhost:8787 make start
+```dotenv
+ADMIN_PASSWORD=SUA_SENHA_INICIAL_COM_PELO_MENOS_15_CARACTERES
 ```
 
-Sem essa variável e com `accountUrl` vazio, `make start` continua funcionando para desenvolvimento local sem exigir conta. Aplicativos empacotados sempre exigem o serviço configurado. O endereço HTTP local é permitido apenas no desenvolvimento.
+Abra o endereço mostrado pelo Wrangler. O motor desktop pode usar o serviço local com `CUTTING_ACCOUNT_URL=http://localhost:8787 make start` na raiz. Aplicativos empacotados sempre exigem o serviço HTTPS configurado.
 
-## 2. Conferir ou criar o banco na sua conta Cloudflare
+## Publicar pelo painel Cloudflare
 
-Se já existe um banco `cutting-accounts`, preserve-o e confira o ID no painel D1. Não crie outro banco para esta unificação. Somente para uma instalação nova, dentro de `cloudflare`:
+1. Preserve o Worker **cutting-accounts** e o banco existente. Confira o `database_id` em `accounts/wrangler.jsonc` com o painel D1. Não crie outro banco para trocar a autenticação.
+2. Em **Workers & Pages → cutting-accounts → Settings → Builds**, configure:
 
-```bash
-npx wrangler login
-npx wrangler d1 create cutting-accounts
-```
+   | Campo          | Valor                       |
+   | -------------- | --------------------------- |
+   | Branch         | `master`                    |
+   | Root directory | `/cloudflare`               |
+   | Build command  | `npm ci`                    |
+   | Deploy command | `npm run deploy:production` |
 
-Copie o `database_id` retornado para `accounts/wrangler.jsonc`, substituindo o ID de outra instalação, se necessário. O nome e o binding `DB` devem permanecer iguais. Use uma conta e um banco de testes primeiro; para separar homologação e produção, duplique as configurações com nomes de Workers e bancos distintos, ajustando os comandos `--config`.
+3. Publique após incorporar esta alteração. O comando aplica `0003_passwords.sql` antes do código. Ela adiciona o hash das senhas, os links de definição/recuperação e reserva `admin@cutting.com`. Usuários e sessões comuns são preservados. Apenas sessões anteriores da identidade reservada `admin@cutting.com` são removidas, e uma eventual senha anterior dessa identidade é invalidada para não conceder privilégio a uma conta pré-existente.
+4. Em **Settings → Runtime variables and secrets → Add variable**, escolha **Secret**, nome **ADMIN_PASSWORD**, valor: uma senha inicial escolhida por você com 15 a 128 caracteres. Salve/aplique. Não cadastre essa senha nas variáveis de build nem no GitHub.
+5. No portal, entre com **admin@cutting.com** e essa senha. A primeira entrada grava somente o hash no D1. Depois disso, o valor de `ADMIN_PASSWORD` não altera a senha existente; você pode remover o secret após ativar a conta. Para mudar a senha, use **Minha conta → Alterar senha**, informando a senha atual.
+6. Clique em **Abrir administração** ou acesse `/admin/`. Confirme cadastro de usuário comum, login, bloqueio, revogação, alteração de versões e geração de link de senha.
 
-## 3. Configurar e publicar o Worker único
+O comando anterior `npm run db:remote && npm run deploy:accounts` também funciona. Pelo terminal, dentro de `cloudflare`, use `npm run deploy:production`. Não publique só com `npm run deploy` antes de aplicar a nova migração.
 
-Em `accounts/wrangler.jsonc`, altere `EMAIL_FROM` para um remetente do seu domínio verificado no Resend. Cadastre os segredos sem colocá-los no repositório:
+O Worker exige apenas os bindings `DB` e `ASSETS`; não precisa de `VERSIONS` nem de serviço de e-mail. Secrets antigos podem permanecer sem efeito e ser retirados após validar o novo fluxo. `ADMIN_EMAILS` continua opcional para administradores adicionais; esses endereços também são reservados no cadastro público. Nunca há senha administrativa padrão no código.
 
-```bash
-openssl rand -hex 32 | npx wrangler secret put AUTH_SECRET -c accounts/wrangler.jsonc
-npx wrangler secret put RESEND_API_KEY -c accounts/wrangler.jsonc
-```
+PBKDF2 foi verificado no runtime local do Worker. A derivação forte usa mais CPU que o login anterior: confira os limites de CPU e métricas do seu plano em produção. Workers Free tem orçamento de 10 ms por requisição; se houver erro de limite, use Workers Paid, sem reduzir a proteção das senhas para caber nesse orçamento.
 
-Use uma chave estável para `AUTH_SECRET`; sua troca invalida os códigos de acesso ainda pendentes. Os tokens de sessão são aleatórios e armazenados como hashes no banco, sem depender dessa chave.
+## Contas existentes e recuperação de senha
 
-Revise a política inicial em `accounts/wrangler.jsonc`, junto com `EMAIL_FROM`. Após salvar uma política pelo painel administrativo, os valores do D1 passam a prevalecer sobre as variáveis do Wrangler, inclusive depois de novos deploys. `MINIMUM_VERSION` deve ser menor ou igual a `LATEST_VERSION`. Os valores iniciais são `0.2.0`, correspondendo à primeira versão do aplicativo com contas. `RELEASE_URL` aponta para o GitHub Releases público; se o repositório de distribuição for privado, configure um feed apropriado antes de distribuir. Nunca incorpore um token do GitHub no Electron.
+Não é possível assumir uma conta antiga pelo cadastro público: e-mails existentes são recusados e seus dados nunca são substituídos.
 
-```bash
-npm run deploy:production
-```
+- Se a pessoa ainda está conectada no portal, **Minha conta → Definir minha senha** permite criar a senha usando a sessão existente.
+- Se está desconectada, um administrador localiza o usuário e usa **Gerar link de senha**. O link deve ser compartilhado diretamente com a pessoa; o sistema não envia e-mail automaticamente.
+- Links valem uma hora, são de uso único e somente seu hash é salvo no banco. Gerar outro link invalida o anterior. O token fica no fragmento da URL e é retirado do endereço assim que a página abre; o envio ao servidor acontece pelo corpo do pedido de definição de senha.
+- Definir ou alterar senha revoga as outras sessões. Bloqueio de conta não é removido por trocar a senha.
+- A identidade `admin@cutting.com` não recebe link pelo painel. Para recuperar o administrador sem sessão/senha atual, o operador autorizado pode limpar somente seu hash e suas sessões no console D1, configurar um novo `ADMIN_PASSWORD` e repetir a primeira entrada:
 
-O comando aplica as migrações pendentes e publica apenas `cutting-accounts`. Confirme o banco de destino antes de executar. `npm run deploy` publica sem migrar; `npm run deploy:accounts` permanece como alias para configurações existentes do painel. O portal fica no endereço `https://cutting-accounts.SEU-SUBDOMINIO.workers.dev`. É possível associar um domínio próprio posteriormente pelo Cloudflare.
+  ```sql
+  UPDATE users SET password_hash=NULL WHERE email='admin@cutting.com';
+  DELETE FROM sessions WHERE user_id IN (SELECT id FROM users WHERE email='admin@cutting.com');
+  ```
 
-Antes de distribuir: teste criação de conta, recebimento de código, login, `/api/session`, saída e download pelo portal. E-mail e implantação online não foram executados durante o desenvolvimento deste código.
+## Administração e versões
 
-## Migração pelo painel: de dois Workers para um
+O painel lista usuários com busca/paginação, status, sessões e último acesso. Administradores podem bloquear/desbloquear, revogar sessões e gerar links de senha. Contas administrativas não podem ser bloqueadas pelo painel; **Sair** encerra sua própria sessão.
 
-1. Incorpore a mudança na branch de produção (`master`). Em **Workers & Pages → cutting-accounts → Settings → Builds**, mantenha o mesmo repositório e use:
+O acesso exige uma sessão ativa de navegador e um e-mail reservado/permitido. Usuários comuns e tokens do desktop não acessam as APIs administrativas. A permissão é verificada em cada pedido. O histórico registra as ações sem incluir senhas, hashes, tokens ou códigos.
 
-   | Campo             | Valor                       |
-   | ----------------- | --------------------------- |
-   | Production branch | `master`                    |
-   | Root directory    | `/cloudflare`               |
-   | Build command     | `npm ci`                    |
-   | Deploy command    | `npm run deploy:production` |
+A política salva pelo painel no D1 prevalece sobre `LATEST_VERSION`, `MINIMUM_VERSION` e `RELEASE_URL` do Wrangler, inclusive depois de novos deploys. Antes do primeiro salvamento, as variáveis do arquivo são utilizadas. A versão mínima não pode superar a atual; downloads precisam de HTTPS sem credenciais. Salvar a política não publica instaladores no GitHub.
 
-   O comando anterior `npm run db:remote && npm run deploy:accounts` também continua funcionando.
-
-2. Preserve os secrets de runtime `AUTH_SECRET` e `RESEND_API_KEY` no Worker de contas. Confira no arquivo Wrangler `EMAIL_FROM`, `LATEST_VERSION`, `MINIMUM_VERSION` e `RELEASE_URL`: a política antes definida em `cutting-versions` deve agora estar neste arquivo. Se você já tinha elevado a versão mínima ou alterado o download, copie esses valores antes de publicar.
-3. Confira o `database_id` e execute/aguarde o build de produção. O token do build precisa poder publicar o Worker e aplicar migrações D1. A unificação não exige alterar as tabelas de contas. O painel administrativo requer a migração `0002_admin.sql`, aplicada por `deploy:production`.
-4. Após a publicação, confira `DB → cutting-accounts`, os assets do portal e a ausência do Service Binding `VERSIONS`. O deploy aplica essa configuração pelo Wrangler; não crie um novo binding `VERSIONS`.
-5. Teste `/api/health`, `/api/version?version=0.2.0&platform=win32`, recebimento de código, login no portal e `/api/session` pelo desktop. Health confirma apenas que o handler responde; os testes de login e sessão verificam banco, e-mail e autorização.
-6. Somente depois de validar contas, desative o build automático do antigo `cutting-versions` em **Settings → Builds → Disable builds**. O script `deploy:versions` foi removido porque não há mais um Worker separado no código.
-7. O Worker antigo pode ser excluído posteriormente se nenhum cliente externo usar seu endereço diretamente. Os clientes Electron e o portal que usam o endereço de contas não precisam mudar de URL. Não exclua o D1 nem o Worker `cutting-accounts`.
-
-O nome, o endereço público, o banco e o formato das respostas de contas são preservados. Sessões existentes continuam válidas. Mantenha o `AUTH_SECRET` atual para também preservar os códigos de e-mail pendentes. Se for necessário reverter, publique o código anterior de contas enquanto o Worker antigo de versões ainda estiver disponível.
+O Worker antigo `cutting-versions` pode ter seus builds desativados e ser retirado depois de confirmar que ninguém usa seu endereço diretamente. O endereço de contas, o D1 e o contrato de sessão são preservados.
 
 ## 4. Conectar e distribuir o Electron
 
@@ -112,9 +88,9 @@ No GitHub, configure a variável de repositório **CUTTING_ACCOUNT_URL** com o m
 
 Para macOS, configure os secrets `MAC_CSC_LINK`, `MAC_CSC_KEY_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD` e `APPLE_TEAM_ID`, com certificado Developer ID e dados para notarização. O workflow exige esses valores e gera DMG + ZIP para Intel e Apple Silicon. A assinatura temporária do runtime de desenvolvimento não substitui o certificado de distribuição. Para Windows, configure `WIN_CSC_LINK` e `WIN_CSC_KEY_PASSWORD` para distribuir versões assinadas; o fluxo usa NSIS x64. Linux usa pacotes x64 e AppImage; valide a atualização no formato efetivamente instalado.
 
-Crie a tag `v0.2.0` somente depois de incorporar esta entrega e concluir a configuração. O workflow confere se a tag corresponde à versão do `frontend/package.json`, empacota também o motor Python para cada plataforma e produz uma **release em rascunho**. A etapa de publicação só ocorre se todos os pacotes terminarem; os metadados de macOS combinam as duas arquiteturas. Revise os instaladores e teste a atualização real antes de publicar a release.
+Crie a tag `v0.2.1` somente depois de incorporar esta entrega e concluir a configuração. O workflow confere se a tag corresponde à versão do `frontend/package.json`, empacota também o motor Python para cada plataforma e produz uma **release em rascunho**. A etapa de publicação só ocorre se todos os pacotes terminarem; os metadados de macOS combinam as duas arquiteturas. Revise os instaladores e teste a atualização real antes de publicar a release.
 
-Os três computadores receberão essa primeira instalação manualmente. Versões antigas sem login/atualizador continuam funcionando localmente; não é possível impor retroativamente essas regras a elas.
+Distribua o instalador 0.2.1 com o novo formulário de senha. Aplicativos antigos que usam códigos de e-mail precisam ser atualizados para entrar novamente. Versões antigas sem login/atualizador continuam funcionando localmente; não é possível impor retroativamente essas regras a elas.
 
 ## 5. Próximas versões
 
@@ -130,34 +106,16 @@ A sessão dura até 30 dias. Após validar online, há tolerância offline de at
 
 O token fica no processo principal; o renderer recebe apenas estado da conta e política de versão. A persistência usa `safeStorage`; sem criptografia disponível (ou backend Linux `basic_text`), a sessão fica apenas em memória e exige novo login ao reabrir. Logout apaga o acesso local mesmo offline; nesse caso a revogação remota não pode ser confirmada até haver conexão. Bloqueios feitos enquanto o computador está offline passam a valer na reconexão ou no término da tolerância. Como o motor é local, um cliente modificado pode contornar controles locais; esta estrutura não promete proteção absoluta contra adulteração.
 
-## Ativar o painel administrativo
+## Rotas e validação de produção
 
-1. Publique usando `npm run deploy:production` (ou `npm run db:remote && npm run deploy:accounts`). A migração `0002_admin.sql` adiciona a política de versões e o histórico administrativo; preserva usuários, sessões e códigos existentes. Não use apenas `npm run deploy` antes de aplicar esta migração: as consultas de versão precisam da nova tabela.
-2. No painel Cloudflare, abra **Workers & Pages → cutting-accounts → Settings → Runtime variables and secrets → Add variable**. Escolha **Secret**, nome **ADMIN_EMAILS** e valor igual ao seu e-mail completo. Para mais de um administrador, separe os endereços por vírgula. Salve/aplique a alteração. Este valor deve ficar na configuração de execução do Worker, não nas variáveis de build. Alternativa pelo terminal, dentro de `cloudflare`:
+- `POST /api/auth/register`: `{email,password,name?,client?,deviceId?}`.
+- `POST /api/auth/login`: `{email,password,client?,deviceId?}`.
+- `POST /api/auth/password`: `{currentPassword?,password}` com sessão ativa.
+- `POST /api/auth/reset-password`: `{token,password}`.
+- `GET /api/session`, `POST /api/auth/logout`, `GET /api/version` e `GET /api/health`.
+- As rotas antigas `request-code` e `verify-code` retornam `410`, orientando atualizar o aplicativo.
+- Administração: `GET /api/admin/me`, `GET /api/admin/users`, `GET /api/admin/users/:id/sessions`, `POST /api/admin/users/:id/status`, `POST /api/admin/users/:id/sessions`, `POST /api/admin/users/:id/password-reset`, `GET/PUT /api/admin/version`, `GET /api/admin/audit`.
 
-   ```bash
-   npx wrangler secret put ADMIN_EMAILS -c accounts/wrangler.jsonc
-   ```
+Portal usa cookie HttpOnly/Secure/SameSite; desktop usa Bearer no processo principal. Somente o token de sessão é persistido com `safeStorage`, nunca a senha. Cadastro/login e troca/recuperação de senha têm limites de tentativas. As tabelas antigas de desafios são mantidas para uma migração sem exclusão de dados, mas não autorizam novos acessos.
 
-   Para desenvolvimento local, adicione `ADMIN_EMAILS=seu-email@seu-dominio.com` a `accounts/.dev.vars`.
-
-3. Entre no portal com esse mesmo e-mail e confirme o código recebido. O link **Abrir administração** aparecerá na área da conta. Você também pode abrir `/admin/` diretamente depois do login.
-4. Use **Buscar** para localizar usuários, **Ver sessões** para consultar dispositivos e **Bloquear / Desbloquear** ou **Revogar sessões** para gerenciar acesso. Contas administrativas não podem ser bloqueadas pelo painel; use **Sair** para encerrar sua própria sessão.
-5. Em **Política de versões**, informe `major.minor.patch` (ex.: `0.2.1`) e um endereço HTTPS sem credenciais. A versão mínima não pode ser maior que a atual. O painel pede confirmação antes de salvar; consulte `/api/version` para verificar o resultado. Salvar a política não cria uma release nem publica instaladores no GitHub.
-6. Confira **Últimas alterações**: o histórico registra o administrador, a ação, o usuário ou política alterada e a data. Não armazena códigos de login nem tokens. As alterações e seus registros são gravados na mesma transação.
-
-Sem `ADMIN_EMAILS`, ninguém recebe permissão administrativa. A lista é validada a cada requisição e somente sessões de navegador podem acessar as APIs administrativas. Usuários comuns e tokens do desktop não ganham acesso ao painel. Para remover um administrador, retire seu endereço do secret; a próxima requisição já será negada. Se todos perderem acesso, corrija a lista pelo painel Cloudflare. Nenhum e-mail de administrador foi escolhido automaticamente no código.
-
-Rotas administrativas: `GET /api/admin/me`, `GET /api/admin/users?q=...&page=1` (25 por página), `GET /api/admin/users/:id/sessions` (até 100 sessões ativas), `POST /api/admin/users/:id/status` com `{ "status": "active" | "blocked" }`, `POST /api/admin/users/:id/sessions` com `{}` para revogar todas as sessões, `GET/PUT /api/admin/version` e `GET /api/admin/audit` (50 últimas ações).
-
-## Operação inicial
-
-Consultar usuários e versões dos dispositivos:
-
-```bash
-npx wrangler d1 execute cutting-accounts --remote -c accounts/wrangler.jsonc --command "SELECT u.email,u.status,s.device_id,s.app_version,s.platform,s.last_seen_at FROM users u LEFT JOIN sessions s ON s.user_id=u.id;"
-```
-
-O status de `users` pode ser alterado entre `active` e `blocked` pelo painel administrativo. Bloquear um usuário revoga suas sessões; desbloquear permite novo login e não restaura sessões antigas. Computadores offline continuam sujeitos à tolerância já descrita acima. O job diário remove códigos, sessões e contadores expirados.
-
-Rotas de contas: `POST /api/auth/request-code`, `POST /api/auth/verify-code`, `GET /api/session`, `POST /api/auth/logout`, `GET /api/version` (política local) e `GET /api/health`. Use `GET /api/version?version=0.2.0&platform=win32` no mesmo endereço de contas. Portal utiliza cookie HttpOnly; desktop utiliza Bearer token sem redirects. APIs do portal não aceitam origens de navegador diferentes. Códigos valem dez minutos, são de uso único, têm cinco tentativas e limites de envio por e-mail e IP.
+Teste em produção a primeira entrada administrativa, cadastro comum, login incorreto/correto, logout, troca de senha, link de recuperação, bloqueio e política de versões. `/api/health` confirma apenas que o handler responde. Não houve envio de e-mail nem publicação em produção durante esta alteração.

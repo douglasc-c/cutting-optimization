@@ -1,6 +1,9 @@
 const $ = (id) => document.getElementById(id);
-let challengeId = "",
-  busy = false;
+let busy = false,
+  registering = false;
+let resetToken = new URLSearchParams(location.hash.slice(1)).get("reset") || "";
+if (resetToken)
+  history.replaceState(null, "", location.pathname + location.search);
 async function api(path, data) {
   const response = await fetch(path, {
     method: data ? "POST" : "GET",
@@ -13,13 +16,22 @@ async function api(path, data) {
       : {}),
   });
   const result = await response.json();
-  if (!response.ok)
-    throw new Error(result.error || "Não foi possível concluir.");
+  if (!response.ok) throw Error(result.error || "Não foi possível concluir.");
   return result;
 }
 function screen(id) {
-  for (const name of ["login", "verification", "account"])
+  for (const name of ["login", "account", "reset"])
     $(name).hidden = name !== id;
+}
+function account(result) {
+  $("account-email").textContent = result.user.email;
+  $("admin-link").hidden = !result.isAdmin;
+  $("current-password-field").hidden = !!result.needsPassword;
+  $("current-password").required = !result.needsPassword;
+  $("password-title").textContent = result.needsPassword
+    ? "Definir minha senha"
+    : "Alterar senha";
+  screen("account");
 }
 async function run(action) {
   if (busy) return;
@@ -35,65 +47,107 @@ async function run(action) {
     document.querySelectorAll("button").forEach((b) => (b.disabled = false));
   }
 }
-$("request-form").addEventListener("submit", (event) => {
+$("toggle-register").addEventListener("click", () => {
+  registering = !registering;
+  $("name-field").hidden = !registering;
+  $("confirmation-field").hidden = !registering;
+  $("confirmation").required = registering;
+  $("password").minLength = registering ? 15 : 1;
+  $("password").autocomplete = registering
+    ? "new-password"
+    : "current-password";
+  $("login-title").textContent = registering
+    ? "Criar minha conta"
+    : "Entrar na sua conta";
+  $("login-description").textContent = registering
+    ? "Use uma senha com 15 a 128 caracteres."
+    : "Use seu e-mail e sua senha.";
+  $("login-submit").textContent = registering ? "Cadastrar e entrar" : "Entrar";
+  $("toggle-register").textContent = registering
+    ? "Já tenho conta"
+    : "Criar conta";
+  $("password").value = "";
+  $("confirmation").value = "";
+  $("status").textContent = "";
+});
+$("login-form").addEventListener("submit", (event) => {
   event.preventDefault();
   void run(async () => {
-    const result = await api("/api/auth/request-code", {
-      email: $("email").value.trim(),
-      name: $("name").value,
-    });
-    challengeId = result.challengeId;
-    $("sent-to").textContent =
-      `Enviamos o código para ${$("email").value.trim()}. Ele expira em 10 minutos.`;
-    $("code").value = "";
-    screen("verification");
-    $("code").focus();
+    if (registering && $("password").value !== $("confirmation").value)
+      throw Error("As senhas não coincidem.");
+    const result = await api(
+      registering ? "/api/auth/register" : "/api/auth/login",
+      {
+        email: $("email").value.trim(),
+        password: $("password").value,
+        name: $("name").value,
+        client: "browser",
+      },
+    );
+    $("password").value = "";
+    $("confirmation").value = "";
+    account(result);
   });
 });
-$("verify-form").addEventListener("submit", (event) => {
+$("password-form").addEventListener("submit", (event) => {
   event.preventDefault();
   void run(async () => {
-    const result = await api("/api/auth/verify-code", {
-      challengeId,
-      code: $("code").value.trim(),
-      client: "browser",
+    if ($("new-password").value !== $("new-confirmation").value)
+      throw Error("As senhas não coincidem.");
+    const result = await api("/api/auth/password", {
+      currentPassword: $("current-password").value,
+      password: $("new-password").value,
     });
-    $("account-email").textContent = result.user.email;
-    $("admin-link").hidden = !result.isAdmin;
-    screen("account");
+    $("password-form").reset();
+    account(result);
+    $("status").textContent =
+      "Senha salva. As outras sessões foram encerradas.";
   });
 });
-$("back").addEventListener("click", () => {
-  challengeId = "";
-  screen("login");
-  $("email").focus();
+$("reset-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  void run(async () => {
+    if ($("reset-password").value !== $("reset-confirmation").value)
+      throw Error("As senhas não coincidem.");
+    await api("/api/auth/reset-password", {
+      token: resetToken,
+      password: $("reset-password").value,
+    });
+    resetToken = "";
+    $("reset-form").reset();
+    screen("login");
+    $("status").textContent =
+      "Senha definida. Entre com seu e-mail e sua nova senha.";
+  });
 });
 $("logout").addEventListener(
   "click",
   () =>
     void run(async () => {
       await api("/api/auth/logout", {});
+      $("password-form").reset();
       $("admin-link").hidden = true;
       screen("login");
     }),
 );
 (async () => {
-  try {
-    const result = await api("/api/session");
-    $("account-email").textContent = result.user.email;
-    $("admin-link").hidden = !result.isAdmin;
-    screen("account");
-  } catch (error) {
-    screen("login");
+  if (resetToken) {
+    screen("reset");
+  } else {
+    try {
+      account(await api("/api/session"));
+    } catch {
+      screen("login");
+    }
   }
   try {
-    const policy = await api("/api/version");
-    const url = new URL(policy.releaseUrl);
-    if (url.protocol !== "https:") throw Error("Endereço inválido");
+    const policy = await api("/api/version"),
+      url = new URL(policy.releaseUrl);
+    if (url.protocol !== "https:") throw Error();
     $("release-version").textContent = `Versão ${policy.latestVersion}`;
     $("download").href = url.href;
     $("release").hidden = false;
-  } catch (error) {
+  } catch {
     $("status").textContent =
       "A lista de versões está indisponível. Tente novamente mais tarde.";
   }

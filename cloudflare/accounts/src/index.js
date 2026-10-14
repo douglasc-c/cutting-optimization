@@ -1,28 +1,25 @@
-import {
-  randomInt,
-  randomBytes,
-  randomUUID,
-  createHash,
-  createHmac,
-} from "node:crypto";
+import { randomBytes, randomUUID, createHash } from "node:crypto";
 import { HttpError, json, body, failure } from "../../shared/http.js";
 import {
   getVersionPolicy,
   loadVersionConfig,
 } from "../../shared/version-policy.js";
 import { handleAdmin, isAdmin } from "./admin.js";
+import {
+  ADMIN_EMAIL,
+  hashPassword,
+  verifyPassword,
+  validatePassword,
+} from "./passwords.js";
 const SESSION_MS = 30 * 86400000;
 const digest = (value) => createHash("sha256").update(value).digest("hex");
-const codeHash = (env, id, code) =>
-  createHmac("sha256", env.AUTH_SECRET).update(`${id}:${code}`).digest("hex");
 const normalizeEmail = (value) => {
-  if (
-    typeof value !== "string" ||
-    value.length > 254 ||
-    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
-  )
+  if (typeof value !== "string")
     throw new HttpError(400, "Informe um e-mail válido.");
-  return value.trim().toLowerCase();
+  const email = value.trim().toLowerCase();
+  if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+    throw new HttpError(400, "Informe um e-mail válido.");
+  return email;
 };
 async function rateLimit(env, key, limit, windowMs, now) {
   const bucket = Math.floor(now / windowMs);
@@ -35,30 +32,6 @@ async function rateLimit(env, key, limit, windowMs, now) {
     .first();
   if (row.count > limit)
     throw new HttpError(429, "Muitas tentativas. Aguarde alguns minutos.");
-}
-export async function sendEmail(env, email, code) {
-  if (
-    !env.RESEND_API_KEY ||
-    !env.EMAIL_FROM ||
-    env.EMAIL_FROM.includes("example.com")
-  )
-    throw Error("Email not configured");
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    redirect: "error",
-    signal: AbortSignal.timeout(15000),
-    headers: {
-      Authorization: `Bearer ${env.RESEND_API_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      from: env.EMAIL_FROM,
-      to: [email],
-      subject: "Seu código de acesso ao Cutting Optimization",
-      text: `Seu código é ${code}. Ele expira em 10 minutos. Não compartilhe este código. Se não solicitou o acesso, ignore esta mensagem.`,
-    }),
-  });
-  if (!response.ok) throw Error("Email delivery failed");
 }
 function cookie(request, token, maxAge) {
   const local = ["localhost", "127.0.0.1"].includes(
@@ -93,7 +66,44 @@ async function session(request, env, now) {
     );
   return row;
 }
-export function createAccountsHandler(deliver = sendEmail) {
+async function issueSession(request, env, user, data, now, status = 200) {
+  const client = data.client === "desktop" ? "desktop" : "browser";
+  const deviceId =
+    typeof data.deviceId === "string" && /^[a-f0-9-]{36}$/.test(data.deviceId)
+      ? data.deviceId
+      : randomUUID();
+  const token = randomBytes(32).toString("hex");
+  await env.DB.batch([
+    env.DB.prepare(
+      "DELETE FROM sessions WHERE user_id=? AND device_id=? AND client=?",
+    ).bind(user.id, deviceId, client),
+    env.DB.prepare(
+      `INSERT INTO sessions(token_hash,user_id,device_id,client,created_at,expires_at,last_seen_at) VALUES(?,?,?,?,?,?,?)`,
+    ).bind(
+      digest(token),
+      user.id,
+      deviceId,
+      client,
+      now,
+      now + SESSION_MS,
+      now,
+    ),
+  ]);
+  return json(
+    {
+      user: { id: user.id, email: user.email, name: user.name },
+      expiresAt: now + SESSION_MS,
+      isAdmin: client === "browser" && isAdmin(env, user.email),
+      needsPassword: !user.password_hash,
+      ...(client === "desktop" ? { token } : {}),
+    },
+    status,
+    client === "browser"
+      ? { "Set-Cookie": cookie(request, token, SESSION_MS / 1000) }
+      : {},
+  );
+}
+export function createAccountsHandler() {
   return async (request, env) => {
     try {
       const url = new URL(request.url),
@@ -112,157 +122,211 @@ export function createAccountsHandler(deliver = sendEmail) {
           headers,
         });
       }
-      // No cross-origin browser API access. Desktop calls originate in the main process.
       const origin = request.headers.get("origin");
-      if (origin && origin !== url.origin)
+      if (
+        (origin && origin !== url.origin) ||
+        request.headers.get("sec-fetch-site") === "cross-site"
+      )
         throw new HttpError(403, "Origem não permitida.");
-      if (request.headers.get("sec-fetch-site") === "cross-site")
-        throw new HttpError(403, "Origem não permitida.");
-      if (url.pathname === "/api/health" && request.method === "GET")
+      const path = url.pathname;
+      if (path === "/api/health" && request.method === "GET")
         return json({ service: "accounts", ok: true });
-      if (url.pathname === "/api/version" && request.method === "GET") {
+      if (path === "/api/version") {
+        if (request.method !== "GET")
+          throw new HttpError(405, "Método não permitido.");
         return json(
           getVersionPolicy(url.searchParams, await loadVersionConfig(env)),
         );
       }
-      if (url.pathname === "/api/version")
-        throw new HttpError(405, "Método não permitido.");
-      if (!env.AUTH_SECRET || env.AUTH_SECRET.length < 32)
-        throw Error("Auth secret not configured");
-      if (url.pathname.startsWith("/api/admin/"))
+      if (["/api/auth/request-code", "/api/auth/verify-code"].includes(path))
+        throw new HttpError(
+          410,
+          "O acesso agora usa e-mail e senha. Atualize o aplicativo ou abra o portal.",
+        );
+      if (path.startsWith("/api/admin/"))
         return await handleAdmin(
           request,
           env,
           await session(request, env, now),
           now,
         );
-      if (
-        url.pathname === "/api/auth/request-code" &&
-        request.method === "POST"
-      ) {
+      if (["/api/auth/register", "/api/auth/login"].includes(path)) {
+        if (request.method !== "POST")
+          throw new HttpError(405, "Método não permitido.");
         const data = await body(request),
           email = normalizeEmail(data.email);
-        const name =
-          typeof data.name === "string" ? data.name.trim().slice(0, 100) : "";
         const ip = request.headers.get("cf-connecting-ip") || "local";
-        await rateLimit(env, `send-ip:${ip}`, 20, 3600000, now);
-        await rateLimit(env, `send-email:${email}`, 3, 900000, now);
-        const id = randomUUID(),
-          code = String(randomInt(0, 100000000)).padStart(8, "0");
-        await env.DB.prepare(
-          "INSERT INTO challenges(id,email,name,code_hash,expires_at) VALUES(?,?,?,?,?)",
-        )
-          .bind(id, email, name, codeHash(env, id, code), now + 600000)
-          .run();
-        try {
-          await deliver(env, email, code);
-        } catch (error) {
-          await env.DB.prepare("DELETE FROM challenges WHERE id=?")
-            .bind(id)
-            .run();
-          throw error;
+        await rateLimit(env, `credentials-ip:${ip}`, 30, 900000, now);
+        await rateLimit(env, `credentials-email:${email}`, 10, 900000, now);
+        if (path.endsWith("register")) {
+          if (isAdmin(env, email))
+            throw new HttpError(
+              400,
+              "Este e-mail é reservado para administração.",
+            );
+          validatePassword(data.password);
+          if (
+            await env.DB.prepare("SELECT id FROM users WHERE email=?")
+              .bind(email)
+              .first()
+          )
+            throw new HttpError(
+              409,
+              "Este e-mail já possui conta. Entre ou solicite um link de senha ao administrador.",
+            );
+          const hash = await hashPassword(data.password);
+          const name =
+            typeof data.name === "string" ? data.name.trim().slice(0, 100) : "";
+          const user = await env.DB.prepare(
+            "INSERT INTO users(id,email,name,created_at,password_hash) VALUES(?,?,?,?,?) ON CONFLICT(email) DO NOTHING RETURNING *",
+          )
+            .bind(randomUUID(), email, name, now, hash)
+            .first();
+          if (!user)
+            throw new HttpError(
+              409,
+              "Este e-mail já possui conta. Entre ou solicite um link de senha ao administrador.",
+            );
+          return await issueSession(request, env, user, data, now, 201);
         }
-        return json({
-          challengeId: id,
-          message:
-            "Enviamos um código para seu e-mail. Ele vale por 10 minutos.",
-        });
-      }
-      if (
-        url.pathname === "/api/auth/verify-code" &&
-        request.method === "POST"
-      ) {
-        const data = await body(request);
         if (
-          typeof data.challengeId !== "string" ||
-          data.challengeId.length > 64 ||
-          !/^\d{8}$/.test(data.code || "")
+          typeof data.password !== "string" ||
+          !data.password.length ||
+          data.password.length > 128
         )
-          throw new HttpError(400, "Informe o código de 8 números.");
-        await rateLimit(
-          env,
-          `verify-ip:${request.headers.get("cf-connecting-ip") || "local"}`,
-          40,
-          900000,
-          now,
-        );
-        const row = await env.DB.prepare(
-          `UPDATE challenges SET attempts=attempts+1 WHERE id=?
-          AND used_at IS NULL AND expires_at>? AND attempts<5 RETURNING *`,
-        )
-          .bind(data.challengeId, now)
+          throw new HttpError(401, "E-mail ou senha incorretos.");
+        const user = await env.DB.prepare("SELECT * FROM users WHERE email=?")
+          .bind(email)
           .first();
-        if (!row || row.code_hash !== codeHash(env, row.id, data.code))
-          throw new HttpError(
-            401,
-            "Código inválido ou expirado. Solicite um novo código.",
-          );
-        // Atomic one-time claim: simultaneous requests cannot issue two sessions.
-        const claimed = await env.DB.prepare(
-          "UPDATE challenges SET used_at=? WHERE id=? AND used_at IS NULL RETURNING id",
-        )
-          .bind(now, row.id)
-          .first();
-        if (!claimed)
-          throw new HttpError(
-            401,
-            "Código já utilizado. Solicite um novo código.",
-          );
-        await env.DB.prepare(
-          "INSERT INTO users(id,email,name,created_at) VALUES(?,?,?,?) ON CONFLICT(email) DO NOTHING",
-        )
-          .bind(randomUUID(), row.email, row.name, now)
-          .run();
-        const user = await env.DB.prepare(
-          "SELECT id,email,name,status FROM users WHERE email=?",
-        )
-          .bind(row.email)
-          .first();
+        if (user?.email === ADMIN_EMAIL && !user.password_hash) {
+          if (
+            typeof env.ADMIN_PASSWORD !== "string" ||
+            env.ADMIN_PASSWORD.length < 15 ||
+            env.ADMIN_PASSWORD.length > 128
+          )
+            throw new HttpError(
+              503,
+              "O acesso administrativo ainda não foi configurado.",
+            );
+          const initialHash = await hashPassword(env.ADMIN_PASSWORD);
+          if (!(await verifyPassword(data.password, initialHash)))
+            throw new HttpError(401, "E-mail ou senha incorretos.");
+          const initialized = await env.DB.prepare(
+            "UPDATE users SET password_hash=? WHERE id=? AND password_hash IS NULL RETURNING *",
+          )
+            .bind(initialHash, user.id)
+            .first();
+          if (initialized) user.password_hash = initialized.password_hash;
+          else {
+            const current = await env.DB.prepare(
+              "SELECT password_hash FROM users WHERE id=?",
+            )
+              .bind(user.id)
+              .first();
+            if (
+              !current ||
+              !(await verifyPassword(data.password, current.password_hash))
+            )
+              throw new HttpError(401, "E-mail ou senha incorretos.");
+            user.password_hash = current.password_hash;
+          }
+        } else if (!(await verifyPassword(data.password, user?.password_hash)))
+          throw new HttpError(401, "E-mail ou senha incorretos.");
         if (user.status !== "active")
           throw new HttpError(
             403,
             "Esta conta está bloqueada. Entre em contato com o suporte.",
           );
-        const token = randomBytes(32).toString("hex"),
-          client = data.client === "desktop" ? "desktop" : "browser";
-        const deviceId =
-          typeof data.deviceId === "string" &&
-          /^[a-f0-9-]{36}$/.test(data.deviceId)
-            ? data.deviceId
-            : randomUUID();
+        return await issueSession(request, env, user, data, now);
+      }
+      if (path === "/api/auth/password") {
+        if (request.method !== "POST")
+          throw new HttpError(405, "Método não permitido.");
+        const actor = await session(request, env, now),
+          data = await body(request);
+        validatePassword(data.password);
+        await rateLimit(
+          env,
+          `password-change:${actor.user_id}`,
+          5,
+          900000,
+          now,
+        );
+        const user = await env.DB.prepare("SELECT * FROM users WHERE id=?")
+          .bind(actor.user_id)
+          .first();
+        if (
+          user.password_hash &&
+          (typeof data.currentPassword !== "string" ||
+            data.currentPassword.length > 128 ||
+            !(await verifyPassword(data.currentPassword, user.password_hash)))
+        )
+          throw new HttpError(401, "Senha atual incorreta.");
+        const hash = await hashPassword(data.password);
         await env.DB.batch([
-          env.DB.prepare(
-            "DELETE FROM sessions WHERE user_id=? AND device_id=? AND client=?",
-          ).bind(user.id, deviceId, client),
-          env.DB.prepare(
-            `INSERT INTO sessions(token_hash,user_id,device_id,client,created_at,expires_at,last_seen_at)
-            VALUES(?,?,?,?,?,?,?)`,
-          ).bind(
-            digest(token),
+          env.DB.prepare("UPDATE users SET password_hash=? WHERE id=?").bind(
+            hash,
             user.id,
-            deviceId,
-            client,
-            now,
-            now + SESSION_MS,
-            now,
+          ),
+          env.DB.prepare("DELETE FROM sessions WHERE user_id=?").bind(user.id),
+          env.DB.prepare("DELETE FROM password_resets WHERE user_id=?").bind(
+            user.id,
           ),
         ]);
-        return json(
-          {
-            user: { id: user.id, email: user.email, name: user.name },
-            expiresAt: now + SESSION_MS,
-            isAdmin: client === "browser" && isAdmin(env, user.email),
-            ...(client === "desktop" ? { token } : {}),
-          },
-          200,
-          client === "browser"
-            ? { "Set-Cookie": cookie(request, token, SESSION_MS / 1000) }
-            : {},
+        return await issueSession(
+          request,
+          env,
+          { ...user, password_hash: hash },
+          { client: actor.client, deviceId: actor.device_id },
+          now,
         );
       }
-      if (url.pathname === "/api/session" && request.method === "GET") {
-        const row = await session(request, env, now);
-        const version = request.headers.get("x-app-version"),
+      if (path === "/api/auth/reset-password") {
+        if (request.method !== "POST")
+          throw new HttpError(405, "Método não permitido.");
+        const data = await body(request);
+        validatePassword(data.password);
+        await rateLimit(
+          env,
+          `password-reset-ip:${request.headers.get("cf-connecting-ip") || "local"}`,
+          10,
+          900000,
+          now,
+        );
+        if (
+          typeof data.token !== "string" ||
+          !/^[a-f0-9]{64}$/.test(data.token)
+        )
+          throw new HttpError(400, "Link inválido ou expirado.");
+        const tokenHash = digest(data.token);
+        const reset = await env.DB.prepare(
+          "SELECT user_id FROM password_resets WHERE token_hash=? AND used_at IS NULL AND expires_at>?",
+        )
+          .bind(tokenHash, now)
+          .first();
+        if (!reset) throw new HttpError(400, "Link inválido ou expirado.");
+        const hash = await hashPassword(data.password);
+        const finishedAt = Date.now();
+        const validReset =
+          "SELECT user_id FROM password_resets WHERE token_hash=? AND used_at IS NULL AND expires_at>?";
+        const results = await env.DB.batch([
+          env.DB.prepare(
+            `UPDATE users SET password_hash=? WHERE id=(${validReset})`,
+          ).bind(hash, tokenHash, finishedAt),
+          env.DB.prepare(
+            `DELETE FROM sessions WHERE user_id=(${validReset})`,
+          ).bind(tokenHash, finishedAt),
+          env.DB.prepare(
+            "UPDATE password_resets SET used_at=? WHERE token_hash=? AND used_at IS NULL AND expires_at>? RETURNING user_id",
+          ).bind(finishedAt, tokenHash, finishedAt),
+        ]);
+        if (!results[2].results?.length)
+          throw new HttpError(400, "Link inválido ou expirado.");
+        return json({ success: true });
+      }
+      if (path === "/api/session" && request.method === "GET") {
+        const row = await session(request, env, now),
+          version = request.headers.get("x-app-version"),
           platform = request.headers.get("x-app-platform");
         if (row.client === "desktop" && !version)
           throw new HttpError(400, "Versão do aplicativo ausente.");
@@ -283,15 +347,21 @@ export function createAccountsHandler(deliver = sendEmail) {
         )
           .bind(now, version || "", platform || "", row.token_hash)
           .run();
+        const user = await env.DB.prepare(
+          "SELECT password_hash FROM users WHERE id=?",
+        )
+          .bind(row.user_id)
+          .first();
         return json({
           user: { id: row.user_id, email: row.email, name: row.name },
           expiresAt: row.expires_at,
           allowed: !policy.updateRequired,
           isAdmin: row.client === "browser" && isAdmin(env, row.email),
+          needsPassword: !user.password_hash,
           policy,
         });
       }
-      if (url.pathname === "/api/auth/logout" && request.method === "POST") {
+      if (path === "/api/auth/logout" && request.method === "POST") {
         const token = sessionToken(request);
         if (token)
           await env.DB.prepare("DELETE FROM sessions WHERE token_hash=?")
@@ -315,6 +385,9 @@ export default {
       env.DB.prepare("DELETE FROM challenges WHERE expires_at<?").bind(now),
       env.DB.prepare("DELETE FROM sessions WHERE expires_at<?").bind(now),
       env.DB.prepare("DELETE FROM rate_limits WHERE expires_at<?").bind(now),
+      env.DB.prepare(
+        "DELETE FROM password_resets WHERE expires_at<? OR used_at IS NOT NULL",
+      ).bind(now),
     ]);
   },
 };

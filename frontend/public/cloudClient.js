@@ -150,28 +150,31 @@ function createCloudClient({
       };
     }
   }
+  async function authenticate(route, email, password, name) {
+    const currentGeneration = generation;
+    const deviceId = credentials?.deviceId || randomUUID();
+    const result = await request(route, {
+      email,
+      password,
+      name,
+      client: 'desktop',
+      deviceId,
+    });
+    if (currentGeneration !== generation)
+      throw new Error('O acesso foi cancelado. Entre novamente.');
+    credentials = { token: result.token, deviceId, serviceUrl: base };
+    generation++;
+    persist();
+    return getState();
+  }
   return {
     enabled,
     configured: !!base,
     getState,
-    requestCode: (email, name) =>
-      request('/api/auth/request-code', { email, name }),
-    async verifyCode(challengeId, code) {
-      const currentGeneration = generation;
-      const deviceId = credentials?.deviceId || randomUUID();
-      const result = await request('/api/auth/verify-code', {
-        challengeId,
-        code,
-        client: 'desktop',
-        deviceId,
-      });
-      if (currentGeneration !== generation)
-        throw new Error('O acesso foi cancelado. Entre novamente.');
-      credentials = { token: result.token, deviceId, serviceUrl: base };
-      generation++;
-      persist();
-      return getState();
-    },
+    login: (email, password) =>
+      authenticate('/api/auth/login', email, password),
+    register: (email, password, name) =>
+      authenticate('/api/auth/register', email, password, name),
     async logout() {
       // Begin revocation with the existing token, but clear local access even when offline.
       const revocation = credentials
