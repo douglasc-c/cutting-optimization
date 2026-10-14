@@ -11,7 +11,7 @@ const policy = {
   RELEASE_URL:
     "https://github.com/douglasc-c/cutting-optimization/releases/latest",
 };
-function fixture() {
+function fixture(report) {
   const db = new DatabaseSync(":memory:");
   db.exec(
     readFileSync(
@@ -71,7 +71,7 @@ function fixture() {
     },
     ...policy,
   };
-  const handler = createAccountsHandler();
+  const handler = createAccountsHandler(report);
   async function call(
     route,
     { data, token, cookie, headers = {}, version = "0.2.0", method } = {},
@@ -226,6 +226,7 @@ test("unified version endpoint compares versions and fails closed on invalid pol
     assert.deepEqual((await f.call("/api/health")).data, {
       service: "accounts",
       ok: true,
+      checks: { passwordSchema: "ready", adminSetup: "ready" },
     });
   } finally {
     f.db.close();
@@ -1118,6 +1119,66 @@ test("eight-character passwords work for signup, admin initialization, change an
       ).status,
       200,
     );
+  } finally {
+    f.db.close();
+  }
+});
+
+test("readiness and authentication identify missing schema without exposing SQL or credentials", async () => {
+  const events = [],
+    f = fixture((event) => events.push(event));
+  try {
+    f.db.exec("ALTER TABLE users DROP COLUMN password_hash");
+    const health = await f.call("/api/health");
+    assert.equal(health.status, 503);
+    assert.equal(health.data.reason, "MIGRATIONS_PENDING");
+    const registered = await f.call("/api/auth/register", {
+      data: { email: "private@example.com", password: PASSWORD },
+    });
+    assert.equal(registered.status, 503);
+    assert.equal(
+      registered.data.error,
+      "Serviço indisponível. Tente novamente.",
+    );
+    assert.equal(events.at(-1).stage, "create_user_database");
+    assert.equal(events.at(-1).reason, "MIGRATIONS_PENDING");
+    assert.equal(JSON.stringify(events).includes("private@example.com"), false);
+    assert.equal(JSON.stringify(events).includes(PASSWORD), false);
+    assert.equal(JSON.stringify(events).includes("INSERT INTO"), false);
+  } finally {
+    f.db.close();
+  }
+});
+test("readiness distinguishes absent D1 binding and an unconfigured administrator", async () => {
+  const events = [],
+    f = fixture((event) => events.push(event));
+  try {
+    delete f.env.ADMIN_PASSWORD;
+    const ready = await f.call("/api/health");
+    assert.equal(ready.status, 200);
+    assert.equal(ready.data.checks.adminSetup, "required");
+    assert.equal(
+      (
+        await f.call("/api/auth/login", {
+          data: { email: "admin@cutting.com", password: PASSWORD },
+        })
+      ).status,
+      503,
+    );
+    assert.equal(events.at(-1).reason, "ADMIN_PASSWORD_NOT_CONFIGURED");
+    delete f.env.DB;
+    const health = await f.call("/api/health");
+    assert.equal(health.status, 503);
+    assert.equal(health.data.reason, "DB_BINDING_MISSING");
+    assert.equal(
+      (
+        await f.call("/api/auth/register", {
+          data: { email: "user@example.com", password: PASSWORD },
+        })
+      ).status,
+      503,
+    );
+    assert.equal(events.at(-1).reason, "DATABASE_ERROR");
   } finally {
     f.db.close();
   }

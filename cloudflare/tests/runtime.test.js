@@ -85,6 +85,9 @@ test(
           cookie: r.headers.get("set-cookie")?.split(";")[0],
         };
       }
+      const health = await call("/api/health");
+      assert.equal(health.status, 200);
+      assert.equal(health.data.checks.passwordSchema, "ready");
       const created = await call("/api/auth/register", {
         email: "user@example.test",
         password: "uma senha longa de teste",
