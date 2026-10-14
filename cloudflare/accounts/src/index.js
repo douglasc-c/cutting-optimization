@@ -6,7 +6,11 @@ import {
   createHmac,
 } from "node:crypto";
 import { HttpError, json, body, failure } from "../../shared/http.js";
-import { getVersionPolicy } from "../../shared/version-policy.js";
+import {
+  getVersionPolicy,
+  loadVersionConfig,
+} from "../../shared/version-policy.js";
+import { handleAdmin, isAdmin } from "./admin.js";
 const SESSION_MS = 30 * 86400000;
 const digest = (value) => createHash("sha256").update(value).digest("hex");
 const codeHash = (env, id, code) =>
@@ -117,12 +121,21 @@ export function createAccountsHandler(deliver = sendEmail) {
       if (url.pathname === "/api/health" && request.method === "GET")
         return json({ service: "accounts", ok: true });
       if (url.pathname === "/api/version" && request.method === "GET") {
-        return json(getVersionPolicy(url.searchParams, env));
+        return json(
+          getVersionPolicy(url.searchParams, await loadVersionConfig(env)),
+        );
       }
       if (url.pathname === "/api/version")
         throw new HttpError(405, "Método não permitido.");
       if (!env.AUTH_SECRET || env.AUTH_SECRET.length < 32)
         throw Error("Auth secret not configured");
+      if (url.pathname.startsWith("/api/admin/"))
+        return await handleAdmin(
+          request,
+          env,
+          await session(request, env, now),
+          now,
+        );
       if (
         url.pathname === "/api/auth/request-code" &&
         request.method === "POST"
@@ -238,6 +251,7 @@ export function createAccountsHandler(deliver = sendEmail) {
           {
             user: { id: user.id, email: user.email, name: user.name },
             expiresAt: now + SESSION_MS,
+            isAdmin: client === "browser" && isAdmin(env, user.email),
             ...(client === "desktop" ? { token } : {}),
           },
           200,
@@ -257,7 +271,7 @@ export function createAccountsHandler(deliver = sendEmail) {
         if (platform) params.set("platform", platform);
         let policy;
         try {
-          policy = getVersionPolicy(params, env);
+          policy = getVersionPolicy(params, await loadVersionConfig(env));
         } catch (error) {
           throw new HttpError(
             error.status === 400 ? 400 : 503,
@@ -273,6 +287,7 @@ export function createAccountsHandler(deliver = sendEmail) {
           user: { id: row.user_id, email: row.email, name: row.name },
           expiresAt: row.expires_at,
           allowed: !policy.updateRequired,
+          isAdmin: row.client === "browser" && isAdmin(env, row.email),
           policy,
         });
       }
