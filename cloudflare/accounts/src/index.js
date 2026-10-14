@@ -11,6 +11,7 @@ import {
   verifyPassword,
   validatePassword,
 } from "./passwords.js";
+import { failureReason, reportFailure } from "./diagnostics.js";
 const SESSION_MS = 30 * 86400000;
 const digest = (value) => createHash("sha256").update(value).digest("hex");
 const normalizeEmail = (value) => {
@@ -103,8 +104,12 @@ async function issueSession(request, env, user, data, now, status = 200) {
       : {},
   );
 }
-export function createAccountsHandler() {
+export function createAccountsHandler(
+  report = (event) => console.error(JSON.stringify(event)),
+) {
   return async (request, env) => {
+    let stage = "request";
+    const route = new URL(request.url).pathname;
     try {
       const url = new URL(request.url),
         now = Date.now();
@@ -129,8 +134,48 @@ export function createAccountsHandler() {
       )
         throw new HttpError(403, "Origem não permitida.");
       const path = url.pathname;
-      if (path === "/api/health" && request.method === "GET")
-        return json({ service: "accounts", ok: true });
+      if (path === "/api/health" && request.method === "GET") {
+        if (!env.DB?.prepare || !env.DB?.batch) {
+          reportFailure(report, {
+            event: "auth_health_failed",
+            reason: "DB_BINDING_MISSING",
+          });
+          return json(
+            { service: "accounts", ok: false, reason: "DB_BINDING_MISSING" },
+            503,
+          );
+        }
+        try {
+          await env.DB.batch([
+            env.DB.prepare("SELECT password_hash FROM users LIMIT 0"),
+            env.DB.prepare("SELECT token_hash FROM sessions LIMIT 0"),
+            env.DB.prepare("SELECT key FROM rate_limits LIMIT 0"),
+            env.DB.prepare("SELECT token_hash FROM password_resets LIMIT 0"),
+          ]);
+          const admin = await env.DB.prepare(
+            "SELECT password_hash IS NOT NULL AS configured FROM users WHERE email=?",
+          )
+            .bind(ADMIN_EMAIL)
+            .first();
+          const configured =
+            !!admin?.configured ||
+            (typeof env.ADMIN_PASSWORD === "string" &&
+              env.ADMIN_PASSWORD.length >= 8 &&
+              env.ADMIN_PASSWORD.length <= 128);
+          return json({
+            service: "accounts",
+            ok: true,
+            checks: {
+              passwordSchema: "ready",
+              adminSetup: configured ? "ready" : "required",
+            },
+          });
+        } catch (error) {
+          const reason = failureReason(error, "health_database");
+          reportFailure(report, { event: "auth_health_failed", reason });
+          return json({ service: "accounts", ok: false, reason }, 503);
+        }
+      }
       if (path === "/api/version") {
         if (request.method !== "GET")
           throw new HttpError(405, "Método não permitido.");
@@ -156,6 +201,7 @@ export function createAccountsHandler() {
         const data = await body(request),
           email = normalizeEmail(data.email);
         const ip = request.headers.get("cf-connecting-ip") || "local";
+        stage = "rate_limit_database";
         await rateLimit(env, `credentials-ip:${ip}`, 30, 900000, now);
         await rateLimit(env, `credentials-email:${email}`, 10, 900000, now);
         if (path.endsWith("register")) {
@@ -165,6 +211,7 @@ export function createAccountsHandler() {
               "Este e-mail é reservado para administração.",
             );
           validatePassword(data.password);
+          stage = "lookup_user_database";
           if (
             await env.DB.prepare("SELECT id FROM users WHERE email=?")
               .bind(email)
@@ -174,9 +221,11 @@ export function createAccountsHandler() {
               409,
               "Este e-mail já possui conta. Entre ou solicite um link de senha ao administrador.",
             );
+          stage = "hash_password";
           const hash = await hashPassword(data.password);
           const name =
             typeof data.name === "string" ? data.name.trim().slice(0, 100) : "";
+          stage = "create_user_database";
           const user = await env.DB.prepare(
             "INSERT INTO users(id,email,name,created_at,password_hash) VALUES(?,?,?,?,?) ON CONFLICT(email) DO NOTHING RETURNING *",
           )
@@ -187,6 +236,7 @@ export function createAccountsHandler() {
               409,
               "Este e-mail já possui conta. Entre ou solicite um link de senha ao administrador.",
             );
+          stage = "session_database";
           return await issueSession(request, env, user, data, now, 201);
         }
         if (
@@ -195,10 +245,13 @@ export function createAccountsHandler() {
           data.password.length > 128
         )
           throw new HttpError(401, "E-mail ou senha incorretos.");
+        stage = "lookup_user_database";
         const user = await env.DB.prepare("SELECT * FROM users WHERE email=?")
           .bind(email)
           .first();
+        stage = "verify_password";
         if (user?.email === ADMIN_EMAIL && !user.password_hash) {
+          stage = "admin_setup";
           if (
             typeof env.ADMIN_PASSWORD !== "string" ||
             env.ADMIN_PASSWORD.length < 8 ||
@@ -208,9 +261,12 @@ export function createAccountsHandler() {
               503,
               "O acesso administrativo ainda não foi configurado.",
             );
+          stage = "hash_password";
           const initialHash = await hashPassword(env.ADMIN_PASSWORD);
+          stage = "verify_password";
           if (!(await verifyPassword(data.password, initialHash)))
             throw new HttpError(401, "E-mail ou senha incorretos.");
+          stage = "initialize_admin_database";
           const initialized = await env.DB.prepare(
             "UPDATE users SET password_hash=? WHERE id=? AND password_hash IS NULL RETURNING *",
           )
@@ -237,6 +293,7 @@ export function createAccountsHandler() {
             403,
             "Esta conta está bloqueada. Entre em contato com o suporte.",
           );
+        stage = "session_database";
         return await issueSession(request, env, user, data, now);
       }
       if (path === "/api/auth/password") {
@@ -373,6 +430,16 @@ export function createAccountsHandler() {
       }
       throw new HttpError(404, "Rota não encontrada.");
     } catch (error) {
+      if (
+        ["/api/auth/login", "/api/auth/register"].includes(route) &&
+        (!error.status || error.status >= 500)
+      )
+        reportFailure(report, {
+          event: "password_auth_failed",
+          operation: route.endsWith("login") ? "login" : "register",
+          stage,
+          reason: failureReason(error, stage),
+        });
       return failure(error);
     }
   };

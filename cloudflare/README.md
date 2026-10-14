@@ -118,4 +118,18 @@ O token fica no processo principal; o renderer recebe apenas estado da conta e p
 
 Portal usa cookie HttpOnly/Secure/SameSite; desktop usa Bearer no processo principal. Somente o token de sessão é persistido com `safeStorage`, nunca a senha. Cadastro/login e troca/recuperação de senha têm limites de tentativas. As tabelas antigas de desafios são mantidas para uma migração sem exclusão de dados, mas não autorizam novos acessos.
 
-Teste em produção a primeira entrada administrativa, cadastro comum, login incorreto/correto, logout, troca de senha, link de recuperação, bloqueio e política de versões. `/api/health` confirma apenas que o handler responde. Não houve envio de e-mail nem publicação em produção durante esta alteração.
+Teste em produção a primeira entrada administrativa, cadastro comum, login incorreto/correto, logout, troca de senha, link de recuperação, bloqueio e política de versões. `/api/health` verifica também o binding D1 e as tabelas necessárias ao login com senha. Não houve envio de e-mail nem publicação em produção durante esta alteração.
+
+## Identificar um 503 no cadastro ou login
+
+Depois de publicar, abra `/api/health`:
+
+- `ok: true` e `checks.passwordSchema: "ready"`: o banco contém o esquema necessário.
+- `checks.adminSetup: "required"`: falta configurar `ADMIN_PASSWORD` para a primeira entrada administrativa. Isso não bloqueia cadastro de usuários comuns.
+- `reason: "DB_BINDING_MISSING"`: confira `DB → cutting-accounts`.
+- `reason: "MIGRATIONS_PENDING"`: aplique as migrações com `npm run deploy:production` no painel, ou `npm run db:remote` dentro de `cloudflare`.
+- `reason: "DATABASE_ERROR"`: confira banco, binding e acesso ao D1.
+
+Se o esquema estiver pronto e o cadastro/login ainda falhar, abra **cutting-accounts → Observability → Logs**, reproduza uma vez e procure `password_auth_failed`. O evento informa `operation`, `stage` e `reason`: `PASSWORD_HASH_FAILURE` indica falha ao derivar/verificar a senha; `MIGRATIONS_PENDING` indica coluna/tabela ausente; `DATABASE_ERROR` indica falha do D1; `ADMIN_PASSWORD_NOT_CONFIGURED` indica a configuração inicial administrativa. A observabilidade fica habilitada pelo Wrangler.
+
+Nenhum evento inclui e-mail, senha, token, hash, mensagem original da exceção ou SQL. Respostas públicas de cadastro/login permanecem genéricas, com exceção do aviso já existente de primeira configuração administrativa. `401` de `/api/session` antes de entrar é esperado; `401` no login indica credenciais inválidas. Os motivos nos logs não identificam automaticamente erros de CPU que interrompem o Worker: para esses, confira Metrics/Invocation Status e o erro 1102 da Cloudflare.
