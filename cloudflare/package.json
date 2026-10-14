@@ -7,12 +7,13 @@
     "node": ">=22"
   },
   "scripts": {
-    "dev": "wrangler dev -c accounts/wrangler.jsonc -c versions/wrangler.jsonc",
+    "dev": "wrangler dev -c accounts/wrangler.jsonc",
     "test": "node --test tests/*.test.js",
-    "check": "wrangler deploy --dry-run -c versions/wrangler.jsonc && wrangler deploy --dry-run -c accounts/wrangler.jsonc",
+    "check": "wrangler deploy --dry-run -c accounts/wrangler.jsonc",
     "db:local": "wrangler d1 migrations apply cutting-accounts --local -c accounts/wrangler.jsonc",
     "db:remote": "wrangler d1 migrations apply cutting-accounts --remote -c accounts/wrangler.jsonc",
-    "deploy:versions": "wrangler deploy -c versions/wrangler.jsonc",
+    "deploy": "wrangler deploy -c accounts/wrangler.jsonc",
+    "deploy:production": "npm run db:remote && npm run deploy",
     "deploy:accounts": "wrangler deploy -c accounts/wrangler.jsonc"
   },
   "devDependencies": {

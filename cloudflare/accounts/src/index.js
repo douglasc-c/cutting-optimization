@@ -6,6 +6,7 @@ import {
   createHmac,
 } from "node:crypto";
 import { HttpError, json, body, failure } from "../../shared/http.js";
+import { getVersionPolicy } from "../../shared/version-policy.js";
 const SESSION_MS = 30 * 86400000;
 const digest = (value) => createHash("sha256").update(value).digest("hex");
 const codeHash = (env, id, code) =>
@@ -116,10 +117,10 @@ export function createAccountsHandler(deliver = sendEmail) {
       if (url.pathname === "/api/health" && request.method === "GET")
         return json({ service: "accounts", ok: true });
       if (url.pathname === "/api/version" && request.method === "GET") {
-        return await env.VERSIONS.fetch(
-          new Request(`https://versions.internal/api/version${url.search}`),
-        );
+        return json(getVersionPolicy(url.searchParams, env));
       }
+      if (url.pathname === "/api/version")
+        throw new HttpError(405, "Método não permitido.");
       if (!env.AUTH_SECRET || env.AUTH_SECRET.length < 32)
         throw Error("Auth secret not configured");
       if (
@@ -254,15 +255,15 @@ export function createAccountsHandler(deliver = sendEmail) {
         const params = new URLSearchParams();
         if (version) params.set("version", version);
         if (platform) params.set("platform", platform);
-        const response = await env.VERSIONS.fetch(
-          new Request(`https://versions.internal/api/version?${params}`),
-        );
-        if (!response.ok)
+        let policy;
+        try {
+          policy = getVersionPolicy(params, env);
+        } catch (error) {
           throw new HttpError(
-            response.status === 400 ? 400 : 503,
+            error.status === 400 ? 400 : 503,
             "Não foi possível validar a versão do aplicativo.",
           );
-        const policy = await response.json();
+        }
         await env.DB.prepare(
           "UPDATE sessions SET last_seen_at=?,app_version=?,platform=? WHERE token_hash=?",
         )

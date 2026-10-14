@@ -1,12 +1,11 @@
 # Cutting: contas e versões no Cloudflare
 
-Esta entrega cria dois microserviços em JavaScript com compatibilidade Node.js, implantados como Workers independentes. O backend Python continua executando o motor de corte localmente, sem alterações nas regras de otimização.
+Contas e política de versões são atendidas por um único Worker JavaScript com compatibilidade Node.js: **cutting-accounts**. O backend Python continua executando o motor de corte localmente, sem alterações nas regras de otimização.
 
-- **cutting-accounts**: portal web, criação de conta por confirmação de e-mail, sessões, dispositivos e autorização. Possui o banco D1 `cutting-accounts`.
-- **cutting-versions**: versão mais recente, versão mínima suportada e endereço dos instaladores. Contas consulta versões por um Service Binding interno, sem tokens de infraestrutura no aplicativo.
+- **cutting-accounts**: portal web, confirmação de e-mail, sessões, dispositivos, autorização e política de versões (versão mais recente, mínima suportada e endereço dos instaladores). Usa o banco D1 `cutting-accounts` e avalia versões no próprio código, sem Service Binding.
 - **Electron**: consulta a conta no processo principal antes de cada otimização. Login não impede salvar ou exportar projetos. Atualizações usam `electron-updater` e GitHub Releases.
 
-A interface web criada aqui é um portal de contas e downloads. Não executa o otimizador no navegador. Não há painel administrativo nesta entrega: o bloqueio de usuários é feito pelo administrador no D1, e a política de versões fica na configuração do serviço de versões.
+A interface web criada aqui é um portal de contas e downloads. Não executa o otimizador no navegador. Não há painel administrativo nesta entrega: o bloqueio de usuários é feito pelo administrador no D1, e a política de versões fica na configuração do Worker de contas. Um painel administrativo é uma etapa futura.
 
 ## 1. Instalação e testes locais
 
@@ -21,7 +20,7 @@ npm run check
 npm run db:local
 ```
 
-Os testes usam SQLite real para as consultas de contas e um serviço de versões integrado. O comando `check` empacota os dois Workers sem publicá-los. O UUID zerado em `accounts/wrangler.jsonc` é somente um marcador para desenvolvimento local: substitua-o antes de publicar.
+Os testes usam SQLite real para contas e validam a política de versões dentro do mesmo Worker, sem binding `VERSIONS`. O comando `check` empacota somente `cutting-accounts`, sem publicá-lo. Confira o `database_id` de `accounts/wrangler.jsonc` antes de executar migrações remotas.
 
 Para testar o envio real de códigos, crie `cloudflare/accounts/.dev.vars`, que é ignorado pelo Git:
 
@@ -37,7 +36,7 @@ O remetente precisa ter domínio verificado no Resend. Não há código de acess
 npm run dev
 ```
 
-O Wrangler inicia os dois serviços e conecta o Service Binding. Abra o endereço do primeiro Worker exibido no terminal. Em outro terminal, na raiz do projeto, use o endereço local do Worker de contas:
+O Wrangler inicia somente o Worker de contas e versões. Abra o endereço exibido no terminal. Em outro terminal, na raiz do projeto, use o endereço local do Worker de contas:
 
 ```bash
 CUTTING_ACCOUNT_URL=http://localhost:8787 make start
@@ -45,18 +44,18 @@ CUTTING_ACCOUNT_URL=http://localhost:8787 make start
 
 Sem essa variável e com `accountUrl` vazio, `make start` continua funcionando para desenvolvimento local sem exigir conta. Aplicativos empacotados sempre exigem o serviço configurado. O endereço HTTP local é permitido apenas no desenvolvimento.
 
-## 2. Criar o banco na sua conta Cloudflare
+## 2. Conferir ou criar o banco na sua conta Cloudflare
 
-Dentro de `cloudflare`:
+Se já existe um banco `cutting-accounts`, preserve-o e confira o ID no painel D1. Não crie outro banco para esta unificação. Somente para uma instalação nova, dentro de `cloudflare`:
 
 ```bash
 npx wrangler login
 npx wrangler d1 create cutting-accounts
 ```
 
-Copie o `database_id` retornado para `accounts/wrangler.jsonc`, substituindo o UUID zerado. O nome e o binding `DB` devem permanecer iguais. Use uma conta e um banco de testes primeiro; para separar homologação e produção, duplique as configurações com nomes de Workers e bancos distintos, ajustando também o Service Binding e os comandos `--config`.
+Copie o `database_id` retornado para `accounts/wrangler.jsonc`, substituindo o ID de outra instalação, se necessário. O nome e o binding `DB` devem permanecer iguais. Use uma conta e um banco de testes primeiro; para separar homologação e produção, duplique as configurações com nomes de Workers e bancos distintos, ajustando os comandos `--config`.
 
-## 3. Configurar e publicar os serviços
+## 3. Configurar e publicar o Worker único
 
 Em `accounts/wrangler.jsonc`, altere `EMAIL_FROM` para um remetente do seu domínio verificado no Resend. Cadastre os segredos sem colocá-los no repositório:
 
@@ -67,17 +66,36 @@ npx wrangler secret put RESEND_API_KEY -c accounts/wrangler.jsonc
 
 Use uma chave estável para `AUTH_SECRET`; sua troca invalida os códigos de acesso ainda pendentes. Os tokens de sessão são aleatórios e armazenados como hashes no banco, sem depender dessa chave.
 
-Revise a política em `versions/wrangler.jsonc`. `MINIMUM_VERSION` deve ser menor ou igual a `LATEST_VERSION`. Os valores iniciais são `0.2.0`, correspondendo à primeira versão do aplicativo com contas. `RELEASE_URL` aponta para o GitHub Releases público; se o repositório de distribuição for privado, configure um feed apropriado antes de distribuir. Nunca incorpore um token do GitHub no Electron.
+Revise a política em `accounts/wrangler.jsonc`, junto com `EMAIL_FROM`. `MINIMUM_VERSION` deve ser menor ou igual a `LATEST_VERSION`. Os valores iniciais são `0.2.0`, correspondendo à primeira versão do aplicativo com contas. `RELEASE_URL` aponta para o GitHub Releases público; se o repositório de distribuição for privado, configure um feed apropriado antes de distribuir. Nunca incorpore um token do GitHub no Electron.
 
 ```bash
-npm run db:remote
-npm run deploy:versions
-npm run deploy:accounts
+npm run deploy:production
 ```
 
-Confirme o banco de destino no comando de migrações. Publique versões antes de contas, porque contas depende desse Worker. O portal fica no endereço `https://cutting-accounts.SEU-SUBDOMINIO.workers.dev`. É possível associar um domínio próprio posteriormente pelo Cloudflare.
+O comando aplica as migrações pendentes e publica apenas `cutting-accounts`. Confirme o banco de destino antes de executar. `npm run deploy` publica sem migrar; `npm run deploy:accounts` permanece como alias para configurações existentes do painel. O portal fica no endereço `https://cutting-accounts.SEU-SUBDOMINIO.workers.dev`. É possível associar um domínio próprio posteriormente pelo Cloudflare.
 
 Antes de distribuir: teste criação de conta, recebimento de código, login, `/api/session`, saída e download pelo portal. E-mail e implantação online não foram executados durante o desenvolvimento deste código.
+
+## Migração pelo painel: de dois Workers para um
+
+1. Incorpore a mudança na branch de produção (`master`). Em **Workers & Pages → cutting-accounts → Settings → Builds**, mantenha o mesmo repositório e use:
+
+   | Campo | Valor |
+   |---|---|
+   | Production branch | `master` |
+   | Root directory | `/cloudflare` |
+   | Build command | `npm ci` |
+   | Deploy command | `npm run deploy:production` |
+
+   O comando anterior `npm run db:remote && npm run deploy:accounts` também continua funcionando.
+2. Preserve os secrets de runtime `AUTH_SECRET` e `RESEND_API_KEY` no Worker de contas. Confira no arquivo Wrangler `EMAIL_FROM`, `LATEST_VERSION`, `MINIMUM_VERSION` e `RELEASE_URL`: a política antes definida em `cutting-versions` deve agora estar neste arquivo. Se você já tinha elevado a versão mínima ou alterado o download, copie esses valores antes de publicar.
+3. Confira o `database_id` e execute/aguarde o build de produção. O token do build precisa poder publicar o Worker e aplicar migrações D1. Nenhuma nova migração SQL é necessária para unificar os serviços.
+4. Após a publicação, confira `DB → cutting-accounts`, os assets do portal e a ausência do Service Binding `VERSIONS`. O deploy aplica essa configuração pelo Wrangler; não crie um novo binding `VERSIONS`.
+5. Teste `/api/health`, `/api/version?version=0.2.0&platform=win32`, recebimento de código, login no portal e `/api/session` pelo desktop. Health confirma apenas que o handler responde; os testes de login e sessão verificam banco, e-mail e autorização.
+6. Somente depois de validar contas, desative o build automático do antigo `cutting-versions` em **Settings → Builds → Disable builds**. O script `deploy:versions` foi removido porque não há mais um Worker separado no código.
+7. O Worker antigo pode ser excluído posteriormente se nenhum cliente externo usar seu endereço diretamente. Os clientes Electron e o portal que usam o endereço de contas não precisam mudar de URL. Não exclua o D1 nem o Worker `cutting-accounts`.
+
+O nome, o endereço público, o banco e o formato das respostas de contas são preservados. Sessões existentes continuam válidas. Mantenha o `AUTH_SECRET` atual para também preservar os códigos de e-mail pendentes. Se for necessário reverter, publique o código anterior de contas enquanto o Worker antigo de versões ainda estiver disponível.
 
 ## 4. Conectar e distribuir o Electron
 
@@ -103,7 +121,7 @@ Os três computadores receberão essa primeira instalação manualmente. Versõe
 2. Teste e crie uma tag com o mesmo número, como `v0.2.1`.
 3. Aguarde o workflow e teste os pacotes do rascunho, preservação de projetos e atualização a partir da versão anterior em cada sistema.
 4. Publique a release revisada no GitHub. Ela precisa conter instaladores, ZIPs macOS, `latest*.yml` e arquivos auxiliares gerados.
-5. Atualize `LATEST_VERSION` no serviço de versões e publique-o. Eleve `MINIMUM_VERSION` somente quando for necessário exigir atualização.
+5. Atualize `LATEST_VERSION` em `accounts/wrangler.jsonc` e publique o Worker de contas com `npm run deploy`. Eleve `MINIMUM_VERSION` somente quando for necessário exigir atualização.
 
 O aplicativo consulta atualizações ao abrir, oferece download explícito e mostra “Reiniciar e atualizar” quando pronto. Não instala silenciosamente ao fechar. O reinício é recusado enquanto houver cálculo ou projeto sem salvar.
 
@@ -121,4 +139,4 @@ npx wrangler d1 execute cutting-accounts --remote -c accounts/wrangler.jsonc --c
 
 O status de `users` pode ser alterado entre `active` e `blocked` pelo administrador no D1. Não exponha endpoints administrativos públicos sem autenticação e autorização próprias. O job diário remove códigos, sessões e contadores expirados.
 
-Rotas de contas: `POST /api/auth/request-code`, `POST /api/auth/verify-code`, `GET /api/session`, `POST /api/auth/logout`, `GET /api/version` (proxy interno) e `GET /api/health`. O serviço de versões também oferece `GET /api/version?version=0.2.0&platform=win32` diretamente. Portal utiliza cookie HttpOnly; desktop utiliza Bearer token sem redirects. APIs do portal não aceitam origens de navegador diferentes. Códigos valem dez minutos, são de uso único, têm cinco tentativas e limites de envio por e-mail e IP.
+Rotas de contas: `POST /api/auth/request-code`, `POST /api/auth/verify-code`, `GET /api/session`, `POST /api/auth/logout`, `GET /api/version` (política local) e `GET /api/health`. Use `GET /api/version?version=0.2.0&platform=win32` no mesmo endereço de contas. Portal utiliza cookie HttpOnly; desktop utiliza Bearer token sem redirects. APIs do portal não aceitam origens de navegador diferentes. Códigos valem dez minutos, são de uso único, têm cinco tentativas e limites de envio por e-mail e IP.

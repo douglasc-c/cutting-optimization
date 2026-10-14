@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
 import { createAccountsHandler } from "../accounts/src/index.js";
-import versions from "../versions/src/index.js";
 const policy = {
   LATEST_VERSION: "0.2.1",
   MINIMUM_VERSION: "0.2.0",
@@ -51,7 +50,7 @@ function fixture() {
         }
       },
     },
-    VERSIONS: { fetch: (r) => versions.fetch(r, policy) },
+    ...policy,
   };
   const handler = createAccountsHandler(async (_env, email, code) =>
     outbox.push({ email, code }),
@@ -278,27 +277,45 @@ test("email send rate limit and invalid payloads", async () => {
     f.db.close();
   }
 });
-test("version service compares numeric versions, rejects invalid input and fails closed on bad configuration", async () => {
-  async function check(version, env = policy) {
-    const r = await versions.fetch(
-      new Request(
-        `https://versions.example/api/version?version=${encodeURIComponent(version)}`,
-      ),
-      env,
-    );
-    return { status: r.status, data: await r.json() };
+test("unified version endpoint compares versions and fails closed on invalid policy", async () => {
+  const f = fixture();
+  try {
+    async function check(version, env = policy) {
+      Object.assign(f.env, env);
+      return f.call(`/api/version?version=${encodeURIComponent(version)}`);
+    }
+    assert.equal((await check("0.10.0")).data.updateRequired, false);
+    assert.equal((await check("0.1.9")).data.updateRequired, true);
+    assert.equal((await check("0.2.0")).data.updateAvailable, true);
+    assert.equal((await check("1.0.0-beta")).status, 400);
+    assert.equal((await check("0.2.0", { ...policy, MINIMUM_VERSION: "2.0.0" })).status, 503);
+    assert.equal((await check("0.2.0", { ...policy, RELEASE_URL: "http://invalid.example" })).status, 503);
+    assert.equal((await check("0.2.0", { ...policy, LATEST_VERSION: undefined })).status, 503);
+    Object.assign(f.env, policy);
+    assert.equal((await f.call("/api/version?platform=android")).status, 400);
+    assert.equal((await f.call("/api/version", { data: {} })).status, 405);
+    assert.equal((await f.call("/api/version")).data.latestVersion, policy.LATEST_VERSION);
+    assert.deepEqual((await f.call("/api/health")).data, { service: "accounts", ok: true });
+  } finally {
+    f.db.close();
   }
-  assert.equal((await check("0.10.0")).data.updateRequired, false);
-  assert.equal((await check("0.1.9")).data.updateRequired, true);
-  assert.equal((await check("0.2.0")).data.updateAvailable, true);
-  assert.equal((await check("1.0.0-beta")).status, 400);
-  assert.equal(
-    (await check("0.2.0", { ...policy, MINIMUM_VERSION: "2.0.0" })).status,
-    503,
-  );
-  assert.equal(
-    (await check("0.2.0", { ...policy, RELEASE_URL: "http://invalid.example" }))
-      .status,
-    503,
-  );
+});
+test("session policy is evaluated locally and rejects invalid client versions or configuration", async () => {
+  const f = fixture();
+  try {
+    const login = await f.login();
+    const token = login.data.token;
+    assert.equal(f.env.VERSIONS, undefined);
+    assert.equal((await f.call("/api/session", { token, version: "invalid" })).status, 400);
+    assert.equal((await f.call("/api/session", { token, version: "" })).status, 400);
+    assert.equal((await f.call("/api/session", { token, headers: { "X-App-Platform": "android" } })).status, 400);
+    f.env.MINIMUM_VERSION = "3.0.0";
+    assert.equal((await f.call("/api/session", { token })).status, 503);
+    f.env.MINIMUM_VERSION = "0.2.1";
+    assert.equal((await f.call("/api/session", { token })).data.allowed, false);
+    f.env.MINIMUM_VERSION = "0.2.0";
+    assert.equal((await f.call("/api/session", { token })).data.allowed, true);
+  } finally {
+    f.db.close();
+  }
 });
