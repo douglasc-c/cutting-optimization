@@ -17,7 +17,7 @@ function prepareMacRuntime(
   const icon = path.join(project, 'public', 'icon.icns');
   const digest = crypto
     .createHash('sha256')
-    .update('cutting-runtime-v1')
+    .update('cutting-runtime-v2')
     .update(original)
     .update(fs.readFileSync(sourceInfo))
     .update(fs.readFileSync(icon))
@@ -68,6 +68,9 @@ function prepareMacRuntime(
   set(info, 'CFBundleIconFile', 'cutting-optimization.icns');
   const resources = path.join(bundle, 'Contents', 'Resources');
   fs.copyFileSync(icon, path.join(resources, 'cutting-optimization.icns'));
+  // macOS can use the original resource during launch/termination transitions.
+  // Replace that fallback before the process starts, rather than waiting for ready.
+  fs.copyFileSync(icon, path.join(resources, 'electron.icns'));
   for (const entry of fs.readdirSync(resources, { withFileTypes: true })) {
     const localized = path.join(resources, entry.name, 'InfoPlist.strings');
     if (

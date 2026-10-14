@@ -28,6 +28,10 @@ function fixture() {
     'A',
     path.join(bundle, 'Contents/Frameworks/Example.framework/Versions/Current')
   );
+  fs.writeFileSync(
+    path.join(bundle, 'Contents/Resources/electron.icns'),
+    'stock Electron icon'
+  );
   fs.mkdirSync(path.join(project, 'public'), { recursive: true });
   fs.writeFileSync(path.join(project, 'public/icon.icns'), 'approved icon');
   const commands = [];
@@ -126,4 +130,31 @@ test('other platforms keep the installed Electron runtime', () => {
     prepareMacRuntime('/runtime/electron', '/project', { platform: 'linux' }),
     '/runtime/electron'
   );
+});
+
+test('startup and shutdown fallback icon is branded before launching the runtime', () => {
+  const f = fixture();
+  try {
+    const executable = prepareMacRuntime(f.executable, f.project, {
+      platform: 'darwin',
+      execute: f.execute,
+    });
+    const copiedBundle = path.dirname(path.dirname(path.dirname(executable)));
+    assert.equal(
+      fs.readFileSync(
+        path.join(copiedBundle, 'Contents/Resources/electron.icns'),
+        'utf8'
+      ),
+      'approved icon'
+    );
+    assert.equal(
+      fs.readFileSync(
+        path.join(f.bundle, 'Contents/Resources/electron.icns'),
+        'utf8'
+      ),
+      'stock Electron icon'
+    );
+  } finally {
+    fs.rmSync(f.root, { recursive: true, force: true });
+  }
 });

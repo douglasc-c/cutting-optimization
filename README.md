@@ -315,3 +315,5 @@ No macOS, o aplicativo define o ícone do Dock explicitamente durante a execuç�
 No macOS, `make start` e o launcher de desenvolvimento usam uma cópia local do runtime chamada `Cutting Optimization.app`, com o nome e o ícone da marca nos metadados nativos. A primeira execução prepara e assina localmente essa cópia; as próximas reutilizam o cache. A dependência original do Electron não é alterada. O local dos dados de recuperação é preservado quando o nome interno da aplicação é atualizado.
 
 Depois de atualizar o código, feche a janela antiga e execute `make start` novamente para abrir a aplicação com o nome correto.
+
+O ícone nativo original do runtime também é substituído na cópia local antes de abrir o processo, para manter a mesma marca nas transições de abertura e encerramento. Uma revisão do cache força a preparação novamente após essa atualização.
