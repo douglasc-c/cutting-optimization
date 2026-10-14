@@ -12,6 +12,12 @@ const fs = require('node:fs');
 const { resultsToCsv } = require('./resultExport');
 const { createWorkspaceStore } = require('./workspaceStore');
 const { createOptimizationRunner } = require('./optimizationRunner');
+// Keep the existing recovery directory when setting the human-readable app name.
+const existingUserData = app.getPath('userData');
+fs.mkdirSync(existingUserData, { recursive: true });
+app.setName('Cutting Optimization');
+app.setPath('userData', existingUserData);
+
 let mainWindow,
   store,
   allowClose = false,

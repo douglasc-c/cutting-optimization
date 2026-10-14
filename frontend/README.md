@@ -206,3 +206,5 @@ npm install
 - `npm start`: apenas interface web.
 
 O modo desktop define o ícone criado para o aplicativo no Dock do macOS, além dos ícones da janela e do pacote instalado.
+
+No macOS, o launcher prepara `Cutting Optimization.app` em um cache privado sob `node_modules/.cache`, mantendo intacto o Electron instalado. O nome de exibição e o ícone do bundle são configurados antes da execução, e a cópia recebe assinatura local ad hoc. O cache é regenerado quando o runtime ou o ícone muda.
