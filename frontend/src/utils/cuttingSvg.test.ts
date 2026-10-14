@@ -25,6 +25,21 @@ test('SVG is valid XML, retains scale and protects every piece', () => {
   expect(svg).toContain('rotate(90)');
 });
 
-test('rotation metadata overrides legacy suffix', () => {
-  expect(labelLayout({...piece,id:'piece_0_rot',rotated:false},measure).textTransform).not.toContain('rotate');
+test.each([
+  [80, 20, false], [80, 20, true],
+  [20, 80, false], [20, 80, true],
+  [20, 20, false], [20, 20, true],
+])('aligns text with the longest placed side in %s x %s rotated=%s', (width, height, rotated) => {
+  const p = {...piece, width, height, rotated};
+  const layout = labelLayout(p, measure);
+  expect(layout.textTransform.includes('rotate(90)')).toBe(height >= width);
+  expect(layout.width).toBe(Math.max(width, height));
+  expect(layout.height).toBe(Math.min(width, height));
+  const xml = new DOMParser().parseFromString(generateCuttingSvg(100, 120, [p], true, measure), 'image/svg+xml');
+  expect(xml.querySelector('g[transform]')?.getAttribute('transform')).toBe(layout.textTransform);
+});
+
+test('legacy rotation suffix does not override the placed dimensions', () => {
+  expect(labelLayout({...piece, id:'piece_0_rot', width:80, height:20}, measure).textTransform).not.toContain('rotate');
+  expect(labelLayout({...piece, rotated:false}, measure).textTransform).toContain('rotate(90)');
 });
