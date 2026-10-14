@@ -59,6 +59,7 @@ $("verify-form").addEventListener("submit", (event) => {
       client: "browser",
     });
     $("account-email").textContent = result.user.email;
+    $("admin-link").hidden = !result.isAdmin;
     screen("account");
   });
 });
@@ -72,6 +73,7 @@ $("logout").addEventListener(
   () =>
     void run(async () => {
       await api("/api/auth/logout", {});
+      $("admin-link").hidden = true;
       screen("login");
     }),
 );
@@ -79,6 +81,7 @@ $("logout").addEventListener(
   try {
     const result = await api("/api/session");
     $("account-email").textContent = result.user.email;
+    $("admin-link").hidden = !result.isAdmin;
     screen("account");
   } catch (error) {
     screen("login");

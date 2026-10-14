@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Administração · Cutting Optimization</title>
+    <link rel="stylesheet" href="/portal.css" />
+    <link rel="stylesheet" href="/admin.css" />
+    <script src="/admin.js" defer></script>
+  </head>
+  <body>
+    <header>
+      <a href="/" aria-label="Voltar à minha conta"
+        ><img src="/logo.png" alt="Cutting Optimization"
+      /></a>
+      <div class="header-actions">
+        <span id="admin-email"></span><a href="/">Minha conta</a
+        ><button id="admin-logout" class="secondary" hidden>Sair</button>
+      </div>
+    </header>
+    <main class="admin-main">
+      <div class="page-title">
+        <div>
+          <p class="eyebrow">ADMINISTRAÇÃO</p>
+          <h1>Usuários e versões</h1>
+          <p>Gerencie os acessos e mantenha o aplicativo atualizado.</p>
+        </div>
+      </div>
+      <p id="admin-status" role="status" aria-live="polite"></p>
+      <section id="access-message" class="card">
+        <h2>Verificando acesso…</h2>
+        <p>Estamos conferindo sua sessão.</p>
+        <a href="/">Entrar na minha conta</a>
+      </section>
+      <div id="workspace" hidden>
+        <section class="card users-card" aria-labelledby="users-title">
+          <div class="section-heading">
+            <div>
+              <h2 id="users-title">Usuários</h2>
+              <p id="users-count"></p>
+            </div>
+            <button id="refresh-users" class="secondary compact">
+              Atualizar
+            </button>
+          </div>
+          <form id="search-form" class="search-form">
+            <label for="search">Buscar por nome ou e-mail</label>
+            <div class="search-row">
+              <input
+                id="search"
+                type="search"
+                maxlength="100"
+                placeholder="Digite um nome ou e-mail"
+              /><button type="submit" class="compact">Buscar</button>
+            </div>
+          </form>
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">Usuário</th>
+                  <th scope="col">Status</th>
+                  <th scope="col">Sessões</th>
+                  <th scope="col">Último acesso</th>
+                  <th scope="col">Ações</th>
+                </tr>
+              </thead>
+              <tbody id="users-body"></tbody>
+            </table>
+          </div>
+          <p id="users-empty" hidden>Nenhum usuário encontrado.</p>
+          <nav class="pagination" aria-label="Páginas de usuários">
+            <button id="previous" class="secondary compact">Anterior</button
+            ><span id="page-label"></span
+            ><button id="next" class="secondary compact">Próxima</button>
+          </nav>
+        </section>
+        <div class="admin-grid">
+          <section class="card" aria-labelledby="versions-title">
+            <p class="eyebrow">APLICATIVO DESKTOP</p>
+            <h2 id="versions-title">Política de versões</h2>
+            <p>A versão mínima define quando a atualização é obrigatória.</p>
+            <form id="version-form">
+              <label for="latest-version">Versão atual</label
+              ><input
+                id="latest-version"
+                placeholder="0.2.0"
+                required
+                maxlength="64"
+                pattern="[0-9]+\.[0-9]+\.[0-9]+"
+              />
+              <label for="minimum-version">Versão mínima permitida</label
+              ><input
+                id="minimum-version"
+                placeholder="0.2.0"
+                required
+                maxlength="64"
+                pattern="[0-9]+\.[0-9]+\.[0-9]+"
+              />
+              <label for="release-url">Endereço de download</label
+              ><input
+                id="release-url"
+                type="url"
+                required
+                maxlength="2048"
+                placeholder="https://…"
+              />
+              <button type="submit">Salvar política de versões</button>
+            </form>
+            <p class="note">
+              A alteração vale para as próximas consultas do aplicativo.
+              Computadores offline seguem a tolerância de acesso já existente.
+            </p>
+          </section>
+          <section class="card" aria-labelledby="audit-title">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">RASTREABILIDADE</p>
+                <h2 id="audit-title">Últimas alterações</h2>
+              </div>
+              <button id="refresh-audit" class="secondary compact">
+                Atualizar
+              </button>
+            </div>
+            <ol id="audit-list" class="audit-list"></ol>
+            <p id="audit-empty" hidden>
+              Nenhuma alteração administrativa registrada.
+            </p>
+          </section>
+        </div>
+      </div>
+    </main>
+    <dialog id="sessions-dialog">
+      <div class="section-heading">
+        <h2>Sessões ativas</h2>
+        <button id="close-sessions" class="secondary compact">Fechar</button>
+      </div>
+      <p id="sessions-email"></p>
+      <ul id="sessions-list" class="sessions-list"></ul>
+      <p id="sessions-empty" hidden>Nenhuma sessão ativa.</p>
+    </dialog>
+    <footer>Cutting Optimization · Administração</footer>
+  </body>
+</html>
