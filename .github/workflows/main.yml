@@ -1,12 +1,7 @@
 name: Build Windows Installer
 
 on:
-  workflow_dispatch:  # Permite executar manualmente pelo site do GitHub
-  push:
-    tags:
-      - 'v*'  # Executa quando uma tag de versão é criada (ex: v1.0.0)
-  release:
-    types: [created]  # Executa quando um release é criado
+  workflow_dispatch:
 
 jobs:
   build-windows:
@@ -62,7 +57,7 @@ jobs:
     - name: Set up Node.js
       uses: actions/setup-node@v4
       with:
-        node-version: '18'
+        node-version: '22'
     
     - name: Install frontend dependencies
       run: |
@@ -88,6 +83,11 @@ jobs:
           exit 1
         }
     
+    - name: Configure account service
+      run: npm run configure:cloud --workspace=frontend
+      env:
+        CUTTING_ACCOUNT_URL: ${{ vars.CUTTING_ACCOUNT_URL }}
+
     - name: Build Windows installer
       run: |
         cd frontend

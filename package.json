@@ -19,7 +19,10 @@
     "clean": "rm -rf frontend/node_modules backend/build backend/dist frontend/dist backend/cutting-optimization-backend.exe",
     "test:desktop": "node --test frontend/tests/*.test.js",
     "generate:branding": "python scripts/generate_branding.py",
-    "dev:electron": "npm run electron-dev --workspace=frontend"
+    "dev:electron": "npm run electron-dev --workspace=frontend",
+    "test:cloud": "npm test --prefix cloudflare",
+    "dev:cloud": "npm run dev --prefix cloudflare",
+    "check:cloud": "npm run check --prefix cloudflare"
   },
   "keywords": [
     "cutting",
@@ -33,14 +36,14 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/douglascesario/cutting-optimization.git"
+    "url": "https://github.com/douglasc-c/cutting-optimization.git"
   },
   "bugs": {
-    "url": "https://github.com/douglascesario/cutting-optimization/issues"
+    "url": "https://github.com/douglasc-c/cutting-optimization/issues"
   },
-  "homepage": "https://github.com/douglascesario/cutting-optimization#readme",
+  "homepage": "https://github.com/douglasc-c/cutting-optimization#readme",
   "engines": {
-    "node": ">=16.0.0",
+    "node": ">=22.0.0",
     "npm": ">=8.0.0"
   },
   "workspaces": [

@@ -22,6 +22,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
   showExportInFolder: file => ipcRenderer.invoke('show-export-in-folder', file),
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),
   getAppName: () => ipcRenderer.invoke('get-app-name'),
+  getAccountState: () => ipcRenderer.invoke('account-state'),
+  requestAccountCode: (email, name) =>
+    ipcRenderer.invoke('account-request-code', email, name),
+  verifyAccountCode: (id, code) =>
+    ipcRenderer.invoke('account-verify-code', id, code),
+  logoutAccount: () => ipcRenderer.invoke('account-logout'),
+  getUpdateState: () => ipcRenderer.invoke('update-state'),
+  checkUpdates: () => ipcRenderer.invoke('update-check'),
+  downloadUpdate: () => ipcRenderer.invoke('update-download'),
+  installUpdate: () => ipcRenderer.invoke('update-install'),
+  onUpdateState: callback => subscribe('update-state', callback),
   onMenuAction: callback => subscribe('menu-action', callback),
   onOptimizationProgress: callback =>
     subscribe('optimization-progress', callback),

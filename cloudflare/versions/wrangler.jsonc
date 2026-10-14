@@ -1,0 +1,12 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "cutting-versions",
+  "main": "src/index.js",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "LATEST_VERSION": "0.2.0",
+    "MINIMUM_VERSION": "0.2.0",
+    "RELEASE_URL": "https://github.com/douglasc-c/cutting-optimization/releases/latest",
+  },
+}

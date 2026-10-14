@@ -175,3 +175,9 @@ debug_*.py
 
 # Keep regression tests in version control.
 !backend/tests/test_*.py
+
+# Cloudflare local state and secrets
+.wrangler/
+.dev.vars
+.dev.vars.*
+!cloudflare/package-lock.json

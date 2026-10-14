@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import './App.css';
 import CuttingVisualizer from './components/CuttingVisualizer';
 import Icon from './components/Icon';
+import AccountAccess from './components/AccountAccess';
 import {
   CutResult,
   Project,
@@ -50,6 +51,7 @@ export default function App() {
     index: number;
   } | null>(null);
   const [fileBusy, setFileBusy] = useState(false);
+  const [accountAllowed, setAccountAllowed] = useState(true);
   const activeJob = useRef('');
   const live = useRef<{
     project: Project;
@@ -333,6 +335,12 @@ export default function App() {
       setError('Execute o aplicativo desktop para calcular o corte.');
       return;
     }
+    if (!accountAllowed) {
+      setError(
+        'Valide sua conta e atualize o aplicativo, se solicitado, antes de otimizar.'
+      );
+      return;
+    }
     const snapshot = project;
     const jobId = newId();
     activeJob.current = jobId;
@@ -541,6 +549,10 @@ export default function App() {
           </div>
         </div>
       </header>
+      <AccountAccess
+        onAccessChanged={setAccountAllowed}
+        busy={loading || fileBusy}
+      />
       {notice && (
         <div className="toast" role="status">
           <Icon name="check" />
